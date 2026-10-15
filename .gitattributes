@@ -1,0 +1,5 @@
+# mvnw 在 Linux / Docker 裡執行，必須是 LF 換行
+/mvnw text eol=lf
+*.sh text eol=lf
+# Windows 批次檔維持 CRLF
+*.cmd text eol=crlf

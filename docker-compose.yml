@@ -1,0 +1,48 @@
+# 台股投資管理系統：一個指令啟動「程式 + 資料庫」
+#   啟動：docker compose up -d --build
+#   查看紀錄：docker compose logs -f app
+#   停止：docker compose down        （資料保留在 db-data volume，不會消失）
+# 帳號密碼放在 .env（複製 .env.example 後修改），.env 不可進版控。
+
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: stock_manager
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      TZ: Asia/Taipei
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+08:00
+    volumes:
+      - db-data:/var/lib/mysql
+    # 只開放給本機（例如用 VS Code 外掛查資料）；用 3307 避免和你電腦上已安裝的 MySQL（3306）衝突
+    ports:
+      - "127.0.0.1:3307:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/stock_manager?serverTimezone=Asia/Taipei&characterEncoding=UTF-8
+      SPRING_DATASOURCE_USERNAME: ${DB_USER}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      TZ: Asia/Taipei
+    # 只綁定本機。對外開放時，由前面的 HTTPS 反向代理（例如 Caddy、Cloudflare Tunnel）轉進來，不直接暴露 8080
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  db-data:

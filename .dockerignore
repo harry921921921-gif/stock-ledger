@@ -1,0 +1,9 @@
+# 不需要送進 Docker 建置的東西：編譯產物、IDE 設定、版控、密碼檔
+target/
+.git/
+.idea/
+.vscode/
+*.iml
+.env
+docs/
+CLAUDE.md
