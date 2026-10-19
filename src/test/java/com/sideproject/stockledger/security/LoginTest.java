@@ -171,6 +171,16 @@ class LoginTest {
 			.andExpect(redirectedUrl("/login"));
 	}
 
+	/** 登入頁也要防止連點，所以 script 必須不登入就拿得到。 */
+	@Test
+	void loginPageLoadsPublicDoubleSubmitGuard() throws Exception {
+		mvc.perform(get("/login"))
+			.andExpect(content().string(containsString("src=\"/js/app.js\"")))
+			.andExpect(content().string(containsString("data-busy-text=\"登入中…\"")));
+		mvc.perform(get("/js/app.js"))
+			.andExpect(status().isOk());
+	}
+
 	/** 錯誤頁不能要求登入，否則逾時後送出登入表單，登入完會被導到 /error（審核發現的問題）。 */
 	@Test
 	void errorPageIsPublicAndInChinese() throws Exception {

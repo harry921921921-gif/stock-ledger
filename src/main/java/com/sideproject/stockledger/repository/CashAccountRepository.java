@@ -13,7 +13,10 @@ import com.sideproject.stockledger.entity.CashAccount;
  */
 public interface CashAccountRepository extends Repository<CashAccount, Long> {
 
-	CashAccount save(CashAccount account);
+	/** 立刻寫進資料庫，讓唯一限制的錯誤在 Service 方法裡就出現（不要等到交易結束才丟出）。 */
+	CashAccount saveAndFlush(CashAccount account);
+
+	void flush();
 
 	List<CashAccount> findByUserIdOrderByIdAsc(Long userId);
 

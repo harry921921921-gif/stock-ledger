@@ -31,7 +31,7 @@ public class SecurityConfig {
 			.authorizeHttpRequests(auth -> auth
 				// 錯誤頁要公開：不然逾時後送出登入表單會被導回登入頁，而且登入完會停在 /error
 				.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-				.requestMatchers("/login", "/css/**", "/error").permitAll()
+				.requestMatchers("/login", "/css/**", "/js/**", "/error").permitAll()
 				.requestMatchers("/settings/users/**").hasRole("ADMIN")
 				.anyRequest().authenticated())
 			.formLogin(form -> form

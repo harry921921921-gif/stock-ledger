@@ -75,6 +75,7 @@ a.nav-item:hover { background: var(--bg); }
 .btn-primary { background: var(--primary); color: #fff; }
 .btn-primary:hover { background: var(--primary-dark); }
 .btn-block { width: 100%; }
+.btn:disabled { opacity: 0.6; cursor: progress; }
 .btn-link { background: none; color: var(--muted); padding: 4px 0; }
 .btn-link:hover { color: var(--primary); }
 

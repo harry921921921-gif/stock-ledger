@@ -5,6 +5,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title th:text="${accountId == null} ? '新增現金帳戶 · 台股資產帳本' : '修改現金帳戶 · 台股資產帳本'">現金帳戶 · 台股資產帳本</title>
 	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
 </head>
 <body>
 <div class="app">
@@ -32,7 +33,7 @@
 			<p class="field-error" th:if="${#fields.hasErrors('institution')}" th:errors="*{institution}">錯誤訊息</p>
 
 			<div class="form-actions">
-				<button type="submit" class="btn btn-primary">儲存</button>
+				<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">儲存</button>
 				<a class="btn btn-link" th:href="@{/settings/accounts}">取消</a>
 			</div>
 		</form>

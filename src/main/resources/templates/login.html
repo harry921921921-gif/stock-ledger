@@ -5,6 +5,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>登入 · 台股資產帳本</title>
 	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
 </head>
 <body class="login-page">
 	<main class="login-card">
@@ -26,7 +27,7 @@
 				<input name="remember-me" type="checkbox"> 記住我（30 天）
 			</label>
 
-			<button type="submit" class="btn btn-primary btn-block">登入</button>
+			<button type="submit" class="btn btn-primary btn-block" data-busy-text="登入中…">登入</button>
 		</form>
 	</main>
 </body>

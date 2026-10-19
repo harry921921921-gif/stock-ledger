@@ -152,6 +152,16 @@ class CashAccountControllerTest {
 			.andExpect(content().string(not(containsString("java.lang"))));
 	}
 
+	/** 按下儲存後鎖住按鈕的 script（/js/app.js）要載入，按鈕要有「儲存中…」文字。 */
+	@Test
+	@WithUserDetails(value = "amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void formLoadsDoubleSubmitGuard() throws Exception {
+		mvc.perform(get("/settings/accounts/new"))
+			.andExpect(status().isOk())
+			.andExpect(content().string(containsString("src=\"/js/app.js\"")))
+			.andExpect(content().string(containsString("data-busy-text=\"儲存中…\"")));
+	}
+
 	/** 其他測試都用 csrf() 自己補 token；這裡確認畫面上的表單真的有帶 token。 */
 	@Test
 	@WithUserDetails(value = "amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
