@@ -1,0 +1,117 @@
+/* 介面 A「穩健明亮」（DR-012）：淺色、左側選單、表格為主 */
+:root {
+	--bg: #f5f7fa;
+	--surface: #ffffff;
+	--border: #e3e8ef;
+	--text: #1f2933;
+	--muted: #6b7785;
+	--primary: #1f5fbf;
+	--primary-dark: #174a96;
+	--error-bg: #fdecec;
+	--error-text: #b42318;
+	--info-bg: #eaf2fd;
+	--info-text: #174a96;
+	--radius: 8px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+	font-size: 15px;
+	line-height: 1.6;
+}
+
+h1 { font-size: 22px; margin: 0 0 8px; }
+.muted { color: var(--muted); }
+
+/* ---------- 版面 ---------- */
+.app { display: flex; min-height: 100vh; }
+
+.sidebar {
+	width: 220px;
+	flex-shrink: 0;
+	background: var(--surface);
+	border-right: 1px solid var(--border);
+	display: flex;
+	flex-direction: column;
+	padding: 20px 12px;
+}
+.sidebar .brand { font-weight: 700; font-size: 17px; padding: 0 12px 16px; }
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+	display: block;
+	padding: 8px 12px;
+	border-radius: var(--radius);
+	color: var(--text);
+	text-decoration: none;
+}
+a.nav-item:hover { background: var(--bg); }
+.nav-item.active { background: var(--info-bg); color: var(--primary); font-weight: 600; }
+.nav-item.disabled { color: #b0b8c3; cursor: default; }
+.sidebar-footer {
+	margin-top: auto;
+	border-top: 1px solid var(--border);
+	padding: 12px 12px 0;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+.sidebar-footer .user { display: flex; flex-direction: column; line-height: 1.3; }
+
+.content { flex: 1; padding: 28px 32px; min-width: 0; }
+
+/* ---------- 按鈕與表單 ---------- */
+.btn {
+	border: 1px solid transparent;
+	border-radius: var(--radius);
+	padding: 9px 16px;
+	font: inherit;
+	cursor: pointer;
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-dark); }
+.btn-block { width: 100%; }
+.btn-link { background: none; color: var(--muted); padding: 4px 0; }
+.btn-link:hover { color: var(--primary); }
+
+label { display: block; font-weight: 600; margin: 14px 0 6px; }
+input[type="text"], input[type="password"] {
+	width: 100%;
+	padding: 9px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	font: inherit;
+	background: var(--surface);
+}
+input:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+label.checkbox { font-weight: 400; display: flex; gap: 8px; align-items: center; margin: 14px 0 20px; }
+
+.alert { padding: 10px 12px; border-radius: var(--radius); margin: 12px 0 0; }
+.alert-error { background: var(--error-bg); color: var(--error-text); }
+.alert-info { background: var(--info-bg); color: var(--info-text); }
+
+/* ---------- 登入頁 ---------- */
+.login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
+.login-card {
+	width: 100%;
+	max-width: 380px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	padding: 32px 28px;
+	box-shadow: 0 4px 16px rgba(31, 41, 51, 0.06);
+}
+.login-card .brand { font-size: 22px; margin: 0; }
+
+/* 手機：側欄改成上方橫列 */
+@media (max-width: 720px) {
+	.app { flex-direction: column; }
+	.sidebar { width: auto; border-right: none; border-bottom: 1px solid var(--border); }
+	.sidebar nav { flex-direction: row; flex-wrap: wrap; }
+	.sidebar-footer { margin-top: 12px; }
+	.content { padding: 20px 16px; }
+}

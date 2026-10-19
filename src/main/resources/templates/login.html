@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>登入 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body class="login-page">
+	<main class="login-card">
+		<h1 class="brand">台股資產帳本</h1>
+		<p class="muted">請登入以查看你的資產</p>
+
+		<p class="alert alert-error" th:if="${param.error}">帳號或密碼錯誤</p>
+		<p class="alert alert-error" th:if="${param.locked}">登入失敗次數過多，請 15 分鐘後再試</p>
+		<p class="alert alert-info" th:if="${param.logout}">已登出</p>
+
+		<form th:action="@{/login}" method="post">
+			<label for="username">帳號</label>
+			<input id="username" name="username" type="text" autocomplete="username" required autofocus>
+
+			<label for="password">密碼</label>
+			<input id="password" name="password" type="password" autocomplete="current-password" required>
+
+			<label class="checkbox">
+				<input name="remember-me" type="checkbox"> 記住我（30 天）
+			</label>
+
+			<button type="submit" class="btn btn-primary btn-block">登入</button>
+		</form>
+	</main>
+</body>
+</html>

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>發生錯誤 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body class="login-page">
+	<main class="login-card" th:switch="${status}">
+		<h1 class="brand" th:case="403">沒有權限</h1>
+		<h1 class="brand" th:case="404">找不到這個頁面</h1>
+		<h1 class="brand" th:case="*">系統發生錯誤</h1>
+
+		<p class="muted" th:case="403">你的帳號不能使用這個功能；如果是登入頁放太久，請重新整理後再登入。</p>
+		<p class="muted" th:case="404">網址可能打錯了，或這筆資料不屬於你的帳號。</p>
+		<p class="muted" th:case="*">請稍後再試；如果一直發生，請聯絡管理者。</p>
+
+		<p><a class="btn btn-primary" th:href="@{/}">回到首頁</a></p>
+	</main>
+</body>
+</html>

@@ -39,6 +39,11 @@ services:
       SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/stock_manager?serverTimezone=Asia/Taipei&characterEncoding=UTF-8
       SPRING_DATASOURCE_USERNAME: ${DB_USER}
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      # 初始管理者：只在資料庫還沒有任何使用者時使用
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      # 「記住我」cookie 的簽章金鑰；改掉它會讓所有人的「記住我」失效
+      REMEMBER_ME_KEY: ${REMEMBER_ME_KEY:?請在 .env 設定 REMEMBER_ME_KEY}
       TZ: Asia/Taipei
     # 只綁定本機。對外開放時，由前面的 HTTPS 反向代理（例如 Caddy、Cloudflare Tunnel）轉進來，不直接暴露 8080
     ports:
