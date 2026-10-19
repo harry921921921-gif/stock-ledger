@@ -1,12 +1,17 @@
 package com.sideproject.stockledger.config;
 
+import java.util.Map;
+
 import jakarta.servlet.DispatcherType;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
+import org.springframework.security.web.authentication.ExceptionMappingAuthenticationFailureHandler;
 import org.springframework.util.Assert;
 
 import com.sideproject.stockledger.security.AppUserDetailsService;
@@ -32,6 +37,8 @@ public class SecurityConfig {
 			.formLogin(form -> form
 				.loginPage("/login")
 				.defaultSuccessUrl("/", false)
+				// 鎖定中顯示「請 15 分鐘後再試」；其他失敗一律「帳號或密碼錯誤」，不透露帳號存不存在
+				.failureHandler(loginFailureHandler())
 				.permitAll())
 			// 雜湊 token：cookie 內含帳號、到期時間與簽章；改密碼後舊 cookie 自動失效。
 			// 不用 persistent_logins 表，因為它沒有流水號主鍵、預設 schema 還用 TIMESTAMP（違反 spec 7.2）。
@@ -42,6 +49,13 @@ public class SecurityConfig {
 			.logout(logout -> logout
 				.logoutSuccessUrl("/login?logout"));
 		return http.build();
+	}
+
+	private static AuthenticationFailureHandler loginFailureHandler() {
+		ExceptionMappingAuthenticationFailureHandler handler = new ExceptionMappingAuthenticationFailureHandler();
+		handler.setDefaultFailureUrl("/login?error");
+		handler.setExceptionMappings(Map.of(LockedException.class.getName(), "/login?locked"));
+		return handler;
 	}
 
 }

@@ -31,7 +31,7 @@ public class AppUserDetails implements UserDetails {
 		this.displayName = user.getDisplayName();
 		this.admin = user.getRole() == Role.ADMIN;
 		this.enabled = !user.isDisabled();
-		this.accountNonLocked = user.getLockedUntil() == null || user.getLockedUntil().isBefore(now);
+		this.accountNonLocked = !user.isLockedAt(now);
 	}
 
 	public Long getId() {

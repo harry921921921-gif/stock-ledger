@@ -17,6 +17,11 @@ import jakarta.persistence.Table;
 @Table(name = "app_user")
 public class AppUser {
 
+	/** spec 4.10-5：連續登入失敗 5 次鎖定 15 分鐘。這是安全規則，不是費率，所以不放 RateSetting。 */
+	public static final int MAX_FAILED = 5;
+
+	public static final int LOCK_MINUTES = 15;
+
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
@@ -64,6 +69,25 @@ public class AppUser {
 	/** 帳號比對規則：去掉前後空白、轉小寫。建立帳號和登入都要經過這裡，才不會出現 "Alice" 和 "alice" 兩個帳號。 */
 	public static String normalizeUsername(String raw) {
 		return raw == null ? null : raw.trim().toLowerCase(Locale.ROOT);
+	}
+
+	/** 密碼錯第 MAX_FAILED 次就鎖 LOCK_MINUTES 分鐘，次數歸零；解鎖後再錯 MAX_FAILED 次才會再鎖。 */
+	public void recordLoginFailure(LocalDateTime now) {
+		failedLoginCount++;
+		if (failedLoginCount >= MAX_FAILED) {
+			lockedUntil = now.plusMinutes(LOCK_MINUTES);
+			failedLoginCount = 0;
+		}
+	}
+
+	public void recordLoginSuccess() {
+		failedLoginCount = 0;
+		lockedUntil = null;
+	}
+
+	/** 鎖到 lockedUntil 那一刻為止（不含）。 */
+	public boolean isLockedAt(LocalDateTime now) {
+		return lockedUntil != null && now.isBefore(lockedUntil);
 	}
 
 	public Long getId() {
