@@ -11,7 +11,10 @@
 	<aside th:replace="~{fragments/layout :: sidebar('settings')}"></aside>
 	<main class="content">
 		<h1>設定</h1>
-		<p class="muted">費率、現金帳戶與使用者管理會在接下來的步驟陸續加入。</p>
+		<ul class="settings-list">
+			<li><a th:href="@{/settings/accounts}"><strong>現金帳戶</strong><br><span class="muted">證券交割戶、銀行活存</span></a></li>
+		</ul>
+		<p class="muted">費率與使用者管理會在接下來的步驟陸續加入。</p>
 	</main>
 </div>
 </body>

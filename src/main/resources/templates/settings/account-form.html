@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title th:text="${accountId == null} ? '新增現金帳戶 · 台股資產帳本' : '修改現金帳戶 · 台股資產帳本'">現金帳戶 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('settings')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/settings}">設定</a> / <a th:href="@{/settings/accounts}">現金帳戶</a></p>
+		<h1 th:text="${accountId == null} ? '新增現金帳戶' : '修改現金帳戶'">新增現金帳戶</h1>
+
+		<!-- 新增送到 /settings/accounts，修改送到 /settings/accounts/{id}。沒有 userId 欄位：擁有者一律是登入者。 -->
+		<form class="form-card" method="post" th:object="${form}"
+				th:action="${accountId == null} ? @{/settings/accounts} : @{/settings/accounts/{id}(id=${accountId})}">
+
+			<label for="name">帳戶名稱</label>
+			<input id="name" type="text" th:field="*{name}" th:errorclass="field-invalid" maxlength="50" placeholder="例如：國泰交割戶" required>
+			<p class="field-error" th:if="${#fields.hasErrors('name')}" th:errors="*{name}">錯誤訊息</p>
+
+			<label for="type">類型</label>
+			<select id="type" th:field="*{type}">
+				<option th:each="t : ${types}" th:value="${t}" th:text="${t.label()}">證券交割戶</option>
+			</select>
+			<p class="field-error" th:if="${#fields.hasErrors('type')}" th:errors="*{type}">錯誤訊息</p>
+
+			<label for="institution">券商或銀行</label>
+			<input id="institution" type="text" th:field="*{institution}" th:errorclass="field-invalid" maxlength="50" placeholder="例如：國泰證券" required>
+			<p class="field-error" th:if="${#fields.hasErrors('institution')}" th:errors="*{institution}">錯誤訊息</p>
+
+			<div class="form-actions">
+				<button type="submit" class="btn btn-primary">儲存</button>
+				<a class="btn btn-link" th:href="@{/settings/accounts}">取消</a>
+			</div>
+		</form>
+	</main>
+</div>
+</body>
+</html>

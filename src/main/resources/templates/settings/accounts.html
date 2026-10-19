@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>現金帳戶 · 設定 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('settings')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/settings}">設定</a> / 現金帳戶</p>
+		<div class="page-header">
+			<h1>現金帳戶</h1>
+			<a class="btn btn-primary" th:href="@{/settings/accounts/new}">新增帳戶</a>
+		</div>
+
+		<p class="muted" th:if="${#lists.isEmpty(accounts)}">還沒有現金帳戶。先新增你的證券交割戶，買賣股票時會用到。</p>
+
+		<table class="table" th:unless="${#lists.isEmpty(accounts)}">
+			<thead>
+				<tr>
+					<th>名稱</th>
+					<th>類型</th>
+					<th>券商或銀行</th>
+					<th></th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr th:each="a : ${accounts}">
+					<td th:text="${a.name}">國泰交割戶</td>
+					<td th:text="${a.type.label()}">證券交割戶</td>
+					<td th:text="${a.institution}">國泰證券</td>
+					<td class="actions"><a th:href="@{/settings/accounts/{id}/edit(id=${a.id})}">修改</a></td>
+				</tr>
+			</tbody>
+		</table>
+	</main>
+</div>
+</body>
+</html>
