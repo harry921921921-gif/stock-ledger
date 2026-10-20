@@ -12,7 +12,14 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
-/** 可登入系統的人（spec 6 AppUser）。 */
+import org.hibernate.annotations.DynamicUpdate;
+
+/**
+ * 可登入系統的人（spec 6 AppUser）。
+ * @DynamicUpdate：更新時只寫有變動的欄位。登入失敗計數（LoginAttemptListener）和管理者重設密碼可能同時更新同一列，
+ * 若每次都寫全部欄位，晚寫的那邊會把另一邊剛改的密碼或次數蓋回舊值。
+ */
+@DynamicUpdate
 @Entity
 @Table(name = "app_user")
 public class AppUser {
@@ -66,9 +73,12 @@ public class AppUser {
 		return user;
 	}
 
-	/** 帳號比對規則：去掉前後空白、轉小寫。建立帳號和登入都要經過這裡，才不會出現 "Alice" 和 "alice" 兩個帳號。 */
+	/**
+	 * 帳號比對規則：去掉前後空白、轉小寫。建立帳號和登入都要經過這裡，才不會出現 "Alice" 和 "alice" 兩個帳號。
+	 * 用 strip() 不用 trim()：trim() 去不掉注音輸入法常打出的全形空白（U+3000）。
+	 */
 	public static String normalizeUsername(String raw) {
-		return raw == null ? null : raw.trim().toLowerCase(Locale.ROOT);
+		return raw == null ? null : raw.strip().toLowerCase(Locale.ROOT);
 	}
 
 	/** 密碼錯第 MAX_FAILED 次就鎖 LOCK_MINUTES 分鐘，次數歸零；解鎖後再錯 MAX_FAILED 次才會再鎖。 */
@@ -83,6 +93,15 @@ public class AppUser {
 	public void recordLoginSuccess() {
 		failedLoginCount = 0;
 		lockedUntil = null;
+	}
+
+	/**
+	 * 管理者重設密碼：換上新的雜湊，並解除鎖定、失敗次數歸零。
+	 * 舊的「記住我」cookie 會因為雜湊改變而失效；但對方已經登入中的連線不會被踢掉，要等閒置 30 分鐘逾時。
+	 */
+	public void changePassword(String newPasswordHash) {
+		this.passwordHash = newPasswordHash;
+		recordLoginSuccess();
 	}
 
 	/** 鎖到 lockedUntil 那一刻為止（不含）。 */

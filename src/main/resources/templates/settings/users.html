@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>使用者管理 · 設定 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('settings')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/settings}">設定</a> / 使用者管理</p>
+		<h1>使用者管理</h1>
+		<p class="muted">只有管理者看得到這頁。每個使用者只看得到自己的帳戶與個人費率。</p>
+
+		<p class="alert alert-info" th:if="${message}" th:text="${message}">已建立使用者 bob</p>
+		<p class="alert alert-error" th:if="${resetError}" th:text="${resetError}">重設密碼失敗</p>
+
+		<table class="table">
+			<thead>
+				<tr><th>帳號</th><th>顯示名稱</th><th>角色</th><th>狀態</th><th>重設密碼</th></tr>
+			</thead>
+			<tbody>
+				<tr th:each="u : ${users}">
+					<td th:text="${u.username()}">bob</td>
+					<td th:text="${u.displayName()}">鮑伯</td>
+					<td th:text="${u.roleLabel()}">一般使用者</td>
+					<td th:text="${u.statusLabel()}">正常</td>
+					<td>
+						<!-- 重設後同時解除鎖定；請把新密碼私下告訴對方 -->
+						<form class="inline-form" method="post" th:action="@{/settings/users/{id}/password(id=${u.id()})}">
+							<input type="password" name="newPassword" autocomplete="new-password" minlength="8"
+									placeholder="新密碼（至少 8 個字）" required th:attr="aria-label=|${u.username()} 的新密碼|">
+							<button type="submit" class="btn btn-secondary" data-busy-text="重設中…">重設</button>
+						</form>
+					</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<h2>新增使用者</h2>
+		<form class="form-card" method="post" th:action="@{/settings/users}" th:object="${form}">
+			<p class="alert alert-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}">錯誤訊息</p>
+
+			<label for="username">帳號</label>
+			<input id="username" type="text" th:field="*{username}" th:errorclass="field-invalid" maxlength="50"
+					autocomplete="off" placeholder="登入時用，例如 bob" required>
+			<p class="muted hint">英文大小寫視為相同，前後空白會自動去掉。</p>
+			<p class="field-error" th:if="${#fields.hasErrors('username')}" th:errors="*{username}">錯誤訊息</p>
+
+			<label for="displayName">顯示名稱</label>
+			<input id="displayName" type="text" th:field="*{displayName}" th:errorclass="field-invalid" maxlength="50"
+					placeholder="例如：鮑伯" required>
+			<p class="field-error" th:if="${#fields.hasErrors('displayName')}" th:errors="*{displayName}">錯誤訊息</p>
+
+			<label for="password">初始密碼</label>
+			<!-- 不用 th:field：送出失敗回到這頁時，不把剛輸入的密碼印回畫面 -->
+			<input id="password" name="password" type="password" th:classappend="${#fields.hasErrors('password')} ? 'field-invalid'"
+					autocomplete="new-password" minlength="8" required>
+			<p class="muted hint">至少 8 個字。請私下告訴對方，登入後無法自行改密碼，忘記時由管理者重設。</p>
+			<p class="field-error" th:if="${#fields.hasErrors('password')}" th:errors="*{password}">錯誤訊息</p>
+
+			<label for="role">角色</label>
+			<select id="role" th:field="*{role}">
+				<option th:each="r : ${roles}" th:value="${r}" th:text="${r.label()}">一般使用者</option>
+			</select>
+			<p class="field-error" th:if="${#fields.hasErrors('role')}" th:errors="*{role}">錯誤訊息</p>
+
+			<div class="form-actions">
+				<button type="submit" class="btn btn-primary" data-busy-text="建立中…">建立使用者</button>
+			</div>
+		</form>
+	</main>
+</div>
+</body>
+</html>

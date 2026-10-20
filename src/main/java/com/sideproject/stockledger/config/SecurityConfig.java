@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.LockedException;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
@@ -17,6 +18,8 @@ import org.springframework.util.Assert;
 import com.sideproject.stockledger.security.AppUserDetailsService;
 
 @Configuration
+// 讓 Service 上的 @PreAuthorize 生效：使用者管理在網址和方法兩層都只允許管理者
+@EnableMethodSecurity
 public class SecurityConfig {
 
 	/** spec 4.10-5：「記住我」有效 30 天。 */

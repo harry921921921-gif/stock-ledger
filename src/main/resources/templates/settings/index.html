@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
@@ -15,8 +15,8 @@
 		<ul class="settings-list">
 			<li><a th:href="@{/settings/accounts}"><strong>現金帳戶</strong><br><span class="muted">證券交割戶、銀行活存</span></a></li>
 			<li><a th:href="@{/settings/rates}"><strong>費率</strong><br><span class="muted">法定費率、手續費折扣、最低手續費</span></a></li>
+			<li sec:authorize="hasRole('ADMIN')"><a th:href="@{/settings/users}"><strong>使用者管理</strong><br><span class="muted">新增使用者、重設密碼（僅管理者）</span></a></li>
 		</ul>
-		<p class="muted">使用者管理會在接下來的步驟加入。</p>
 	</main>
 </div>
 </body>

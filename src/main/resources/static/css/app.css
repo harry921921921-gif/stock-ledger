@@ -147,3 +147,9 @@ details summary { cursor: pointer; color: var(--primary); }
 .history { margin: 8px 0 0; padding-left: 18px; line-height: 1.8; }
 .badge { display: inline-block; padding: 0 8px; border-radius: 999px; background: var(--info-bg); color: var(--info-text); font-size: 0.8em; }
 input[type="date"] { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; background: var(--surface); }
+
+/* ---------- 使用者管理 ---------- */
+.inline-form { display: flex; gap: 8px; align-items: center; }
+.inline-form input { width: 180px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; }
+.btn-secondary { background: var(--surface); border-color: var(--border); color: var(--text); padding: 6px 12px; }
+.btn-secondary:hover { border-color: var(--primary); color: var(--primary); }
