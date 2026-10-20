@@ -1,5 +1,8 @@
 package com.sideproject.stockledger.entity;
 
+import java.util.Arrays;
+import java.util.List;
+
 /**
  * 費率與門檻的種類（spec 4.5、5.1、5.2）。資料庫存英文代碼，畫面顯示 label。
  * <ul>
@@ -38,6 +41,15 @@ public enum RateKind {
 		this.label = label;
 		this.scope = scope;
 		this.unit = unit;
+	}
+
+	/** 使用者可以自己新增版本的種類（設定頁下拉選單）。 */
+	public static List<RateKind> personalKinds() {
+		return Arrays.stream(values()).filter(k -> k.scope == Scope.PERSONAL).toList();
+	}
+
+	public boolean isLegal() {
+		return scope == Scope.LEGAL;
 	}
 
 	public String label() {

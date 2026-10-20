@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!-- 一列的共用欄位。數字都由 Service 格式化好，這裡只顯示。 -->
+<th:block th:fragment="rateCells(r)">
+	<td th:text="${r.kind().label()}">項目</td>
+	<td th:text="${r.displayValue()}">0.1425%</td>
+	<td th:text="${r.effectiveDate() != null} ? ${r.effectiveDate()} : '—'">2000-01-01</td>
+	<td th:unless="${r.kind().isLegal()}" th:text="${r.sourceLabel()}">預設</td>
+	<td>
+		<details th:unless="${#lists.isEmpty(r.history())}">
+			<summary th:text="|${#lists.size(r.history())} 個版本|">2 個版本</summary>
+			<ul class="history">
+				<li th:each="h : ${r.history()}">
+					<span th:text="${h.effectiveDate()}">2021-01-01</span> 起
+					<strong th:text="${h.displayValue()}">2.11%</strong>
+					<span class="muted" th:text="${h.sourceLabel()}">法定</span>
+					<span class="badge" th:unless="${h.statusLabel().isEmpty()}" th:text="${h.statusLabel()}">目前適用</span>
+					<br th:if="${h.note() != null}"><small class="muted" th:if="${h.note() != null}" th:text="${h.note()}">證券交易稅條例</small>
+				</li>
+			</ul>
+		</details>
+		<span class="muted" th:if="${#lists.isEmpty(r.history())}">—</span>
+	</td>
+</th:block>
+</body>
+</html>

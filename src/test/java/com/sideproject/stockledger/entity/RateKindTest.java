@@ -33,6 +33,13 @@ class RateKindTest {
 	}
 
 	@Test
+	void personalKindsListMatchesScope() {
+		assertThat(RateKind.personalKinds()).containsExactly(kindsWith(Scope.PERSONAL));
+		assertThat(RateKind.SECURITIES_TAX_STOCK.isLegal()).isTrue();
+		assertThat(RateKind.BROKERAGE_DISCOUNT.isLegal()).isFalse();
+	}
+
+	@Test
 	void amountKindsAreShownInDollars() {
 		assertThat(Arrays.stream(RateKind.values()).filter(k -> k.unit() == Unit.AMOUNT)).containsExactlyInAnyOrder(
 				RateKind.NHI_SUPPLEMENT_THRESHOLD,

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>費率 · 設定 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('settings')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/settings}">設定</a> / 費率</p>
+		<h1>費率</h1>
+		<p class="muted">每次變動都新增一個版本並附生效日期，舊版本不會被修改；計算時依交易日取當時適用的值。</p>
+
+		<!-- 法定費率：所有人共用，唯讀 -->
+		<h2>法定費率</h2>
+		<p class="muted">依法規預先寫入，所有使用者共用，不能在這裡修改。</p>
+		<table class="table">
+			<thead>
+				<tr><th>項目</th><th>目前</th><th>生效日期</th><th>歷史版本</th></tr>
+			</thead>
+			<tbody>
+				<tr th:each="r : ${rows}" th:if="${r.kind().isLegal()}">
+					<td th:replace="~{fragments/rate-cells :: rateCells(${r})}"></td>
+				</tr>
+			</tbody>
+		</table>
+
+		<!-- 個人費率：全域預設 + 自己新增的版本 -->
+		<h2>個人費率</h2>
+		<p class="muted">依你的券商條件設定；沒設定的項目顯示「未設定」，有預設值的項目先用預設值。</p>
+		<table class="table">
+			<thead>
+				<tr><th>項目</th><th>目前</th><th>生效日期</th><th>來源</th><th>歷史版本</th></tr>
+			</thead>
+			<tbody>
+				<tr th:each="r : ${rows}" th:unless="${r.kind().isLegal()}">
+					<td th:replace="~{fragments/rate-cells :: rateCells(${r})}"></td>
+				</tr>
+			</tbody>
+		</table>
+
+		<h3>新增個人費率版本</h3>
+		<form class="form-card" method="post" th:action="@{/settings/rates}" th:object="${form}">
+			<p class="alert alert-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}">錯誤訊息</p>
+
+			<label for="kind">項目</label>
+			<select id="kind" th:field="*{kind}">
+				<option th:each="k : ${personalKinds}" th:value="${k}" th:text="${k.label()}">手續費折扣</option>
+			</select>
+			<p class="field-error" th:if="${#fields.hasErrors('kind')}" th:errors="*{kind}">錯誤訊息</p>
+
+			<label for="value">數值</label>
+			<input id="value" type="text" inputmode="decimal" th:field="*{value}" th:errorclass="field-invalid" required>
+			<p class="muted hint">手續費折扣填百分比：2.8 折填 28、6 折填 60。最低手續費填整數元，例如 20。</p>
+			<p class="field-error" th:if="${#fields.hasErrors('value')}" th:errors="*{value}">錯誤訊息</p>
+
+			<label for="effectiveDate">生效日期</label>
+			<input id="effectiveDate" type="date" th:field="*{effectiveDate}" th:errorclass="field-invalid" required>
+			<p class="field-error" th:if="${#fields.hasErrors('effectiveDate')}" th:errors="*{effectiveDate}">錯誤訊息</p>
+
+			<label for="note">備註（可不填）</label>
+			<input id="note" type="text" th:field="*{note}" maxlength="200" placeholder="例如：國泰證券 2026 年電子下單優惠">
+			<p class="field-error" th:if="${#fields.hasErrors('note')}" th:errors="*{note}">錯誤訊息</p>
+
+			<div class="form-actions">
+				<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">新增版本</button>
+			</div>
+		</form>
+	</main>
+</div>
+
+</body>
+</html>
