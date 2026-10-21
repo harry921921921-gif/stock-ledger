@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title th:text="${movementId == null} ? '記一筆現金異動 · 台股資產帳本' : '修改現金異動 · 台股資產帳本'">記一筆現金異動 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('assets')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/assets}">總資產</a> / <a th:href="@{/assets/movements}">全部異動</a></p>
+		<h1 th:text="${movementId == null} ? '記一筆現金異動' : '修改現金異動'">記一筆現金異動</h1>
+		<p class="muted">存入：錢從系統外進來（例如薪水）。領出：錢離開系統（例如轉給家人、繳保險）。生活費：這個月吃穿用的總花費，每月記一筆就好；日期請選那個月內、而且不晚於你輸入實際餘額的那一天，才會算進正確的月份。帳戶互轉：自己的兩個帳戶之間。</p>
+
+		<p class="muted" th:if="${#lists.isEmpty(myAccounts)}">還沒有現金帳戶，請先<a th:href="@{/settings/accounts/new}">新增帳戶</a>。</p>
+
+		<!-- 新增送到 /assets/movements/new（帶一次性代號，防止連點存成兩筆）；修改送到 /assets/movements/{id}/edit -->
+		<form class="form-card" method="post" th:object="${form}" th:unless="${#lists.isEmpty(myAccounts)}"
+				th:action="${movementId == null} ? @{/assets/movements/new} : @{/assets/movements/{id}/edit(id=${movementId})}">
+			<p class="alert alert-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}">錯誤訊息</p>
+			<input type="hidden" name="formToken" th:if="${movementId == null}" th:value="${formToken}">
+
+			<label for="type" th:if="${movementId == null}">類型</label>
+			<select id="type" th:field="*{type}" th:if="${movementId == null}">
+				<option th:each="t : ${movementTypes}" th:value="${t}" th:text="${t.label()}">存入</option>
+			</select>
+			<!-- 修改時類型不能改 -->
+			<th:block th:if="${movementId != null}">
+				<p><span class="label-text">類型</span> <span th:text="${form.type() != null} ? ${form.type().label()} : '—'">存入</span></p>
+				<input type="hidden" th:field="*{type}">
+			</th:block>
+			<p class="field-error" th:if="${#fields.hasErrors('type')}" th:errors="*{type}">錯誤訊息</p>
+
+			<label for="date">日期</label>
+			<input id="date" type="date" th:field="*{date}" th:errorclass="field-invalid" required>
+			<p class="field-error" th:if="${#fields.hasErrors('date')}" th:errors="*{date}">錯誤訊息</p>
+
+			<label for="accountId">帳戶（互轉時是轉出帳戶）</label>
+			<select id="accountId" th:field="*{accountId}">
+				<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">薪資帳戶</option>
+			</select>
+			<p class="field-error" th:if="${#fields.hasErrors('accountId')}" th:errors="*{accountId}">錯誤訊息</p>
+
+			<label for="toAccountId">轉入帳戶（只有帳戶互轉要選）</label>
+			<select id="toAccountId" th:field="*{toAccountId}">
+				<option value="">（不是互轉）</option>
+				<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">交割戶</option>
+			</select>
+			<p class="field-error" th:if="${#fields.hasErrors('toAccountId')}" th:errors="*{toAccountId}">錯誤訊息</p>
+
+			<label for="amount">金額（元，整數）</label>
+			<input id="amount" type="text" inputmode="numeric" th:field="*{amount}" th:errorclass="field-invalid" required>
+			<p class="field-error" th:if="${#fields.hasErrors('amount')}" th:errors="*{amount}">錯誤訊息</p>
+
+			<label for="note">說明（可不填）</label>
+			<input id="note" type="text" th:field="*{note}" maxlength="100" placeholder="例如：薪資入帳">
+			<p class="field-error" th:if="${#fields.hasErrors('note')}" th:errors="*{note}">錯誤訊息</p>
+
+			<th:block th:if="${movementId != null}">
+				<label for="reason">修改原因（可不填，會記在修改紀錄裡）</label>
+				<input id="reason" name="reason" type="text" maxlength="200" th:value="${reason}">
+			</th:block>
+
+			<div class="form-actions">
+				<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">儲存</button>
+				<a class="btn btn-link" th:href="${movementId == null} ? @{/assets} : @{/assets/movements}">取消</a>
+			</div>
+		</form>
+	</main>
+</div>
+</body>
+</html>

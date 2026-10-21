@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title th:text="${movementId == null} ? '設定初始現金餘額 · 台股資產帳本' : '修改初始現金餘額 · 台股資產帳本'">初始現金餘額 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('assets')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/assets}">總資產</a> / 初始現金餘額</p>
+		<h1 th:text="${movementId == null} ? '設定初始現金餘額' : '修改初始現金餘額'">設定初始現金餘額</h1>
+		<p><strong th:text="${account.name}">薪資帳戶</strong></p>
+		<p class="muted">開始用系統時，這個帳戶裡本來就有的錢。它是起點，不算存入，也不算本月淨資產變動。每個帳戶只有一筆。</p>
+
+		<form class="form-card" method="post" th:object="${form}"
+				th:action="${movementId == null} ? @{/assets/accounts/{id}/opening(id=${account.id})} : @{/assets/movements/{id}/edit-opening(id=${movementId})}">
+			<p class="alert alert-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}">錯誤訊息</p>
+
+			<label for="date">從哪一天開始算</label>
+			<input id="date" type="date" th:field="*{date}" th:errorclass="field-invalid" required>
+			<p class="field-error" th:if="${#fields.hasErrors('date')}" th:errors="*{date}">錯誤訊息</p>
+
+			<label for="amount">金額（元，整數）</label>
+			<input id="amount" type="text" inputmode="numeric" th:field="*{amount}" th:errorclass="field-invalid" required>
+			<p class="field-error" th:if="${#fields.hasErrors('amount')}" th:errors="*{amount}">錯誤訊息</p>
+
+			<th:block th:if="${movementId != null}">
+				<label for="reason">修改原因（可不填）</label>
+				<input id="reason" name="reason" type="text" maxlength="200" th:value="${reason}">
+			</th:block>
+
+			<div class="form-actions">
+				<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">儲存</button>
+				<a class="btn btn-link" th:href="${movementId == null} ? @{/assets} : @{/assets/movements}">取消</a>
+			</div>
+		</form>
+	</main>
+</div>
+</body>
+</html>

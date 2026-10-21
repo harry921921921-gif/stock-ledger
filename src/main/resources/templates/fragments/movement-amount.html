@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!-- 異動金額欄：正負號依 Service 算好的 Direction，數字格式一律用 @money。作廢的對帳沒有金額，顯示「—」。 -->
+<td class="num" th:fragment="amount(m)"
+		th:classappend="${m.direction().name() == 'OUT'} ? 'negative' : (${m.direction().name() == 'IN'} ? 'positive' : '')"
+		th:text="${m.amount() == null} ? '—' : ((${m.direction().name() == 'IN'} ? '+' : (${m.direction().name() == 'OUT'} ? '−' : '')) + ${@money.plain(m.amount())})">+62,000</td>
+</body>
+</html>

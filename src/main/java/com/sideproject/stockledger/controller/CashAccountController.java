@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import com.sideproject.stockledger.dto.CashAccountForm;
 import com.sideproject.stockledger.entity.CashAccountType;
 import com.sideproject.stockledger.service.CashAccountService;
+import com.sideproject.stockledger.service.CashMovementService;
 
 /** 設定頁的「現金帳戶」（spec 3 第 6 頁）。只負責收表單、轉頁；規則都在 Service。不提供刪除。 */
 @Controller
@@ -23,9 +24,11 @@ public class CashAccountController {
 	private static final String FORM_VIEW = "settings/account-form";
 
 	private final CashAccountService service;
+	private final CashMovementService movements;
 
-	public CashAccountController(CashAccountService service) {
+	public CashAccountController(CashAccountService service, CashMovementService movements) {
 		this.service = service;
+		this.movements = movements;
 	}
 
 	@ModelAttribute("types")
@@ -64,6 +67,7 @@ public class CashAccountController {
 	public String editForm(@PathVariable Long id, Model model) {
 		model.addAttribute("form", CashAccountForm.from(service.getMine(id)));
 		model.addAttribute("accountId", id);
+		model.addAttribute("opening", movements.findOpening(id).orElse(null));
 		return FORM_VIEW;
 	}
 
@@ -71,6 +75,7 @@ public class CashAccountController {
 	public String update(@PathVariable Long id, @Valid @ModelAttribute("form") CashAccountForm form,
 			BindingResult result, Model model) {
 		model.addAttribute("accountId", id);
+		model.addAttribute("opening", movements.findOpening(id).orElse(null));
 		if (result.hasErrors()) {
 			return FORM_VIEW;
 		}

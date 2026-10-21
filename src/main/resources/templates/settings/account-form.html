@@ -37,6 +37,20 @@
 				<a class="btn btn-link" th:href="@{/settings/accounts}">取消</a>
 			</div>
 		</form>
+
+		<!-- 修改帳戶時顯示初始現金餘額（spec 4.6-3） -->
+		<section class="panel" th:if="${accountId != null}">
+			<h2>初始現金餘額</h2>
+			<p th:if="${opening != null}">
+				<strong th:text="${@money.plain(opening.amount)}">100,000</strong> 元，從
+				<span th:text="${opening.movementDate}">2026-10-01</span> 開始算 ·
+				<a th:href="@{/assets/movements/{id}/edit(id=${opening.id})}">修改</a>
+			</p>
+			<p th:if="${opening == null}">
+				還沒設定。<a th:href="@{/assets/accounts/{id}/opening(id=${accountId})}">設定初始現金餘額</a>
+				（開始用系統時帳戶裡本來就有的錢，不算存入）
+			</p>
+		</section>
 	</main>
 </div>
 </body>

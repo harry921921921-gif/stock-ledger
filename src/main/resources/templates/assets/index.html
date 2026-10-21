@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>總資產 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<!-- 依設計稿「總資產」（Assets）。所有數字都由 TotalAssetsService 算好，這裡只負責顯示與加千分位。 -->
+<div class="app" th:with="v=${view}">
+	<aside th:replace="~{fragments/layout :: sidebar('assets')}"></aside>
+	<main class="content">
+		<div class="page-header">
+			<h1>總資產</h1>
+			<a class="btn btn-primary" th:href="@{/assets/movements/new}">記一筆現金異動</a>
+		</div>
+
+		<p class="alert alert-info" th:if="${message}" th:text="${message}">已記錄</p>
+
+		<!-- 四張數字卡片 -->
+		<section class="stat-grid" aria-label="關鍵數字">
+			<div class="stat-card">
+				<span class="stat-label">總資產</span>
+				<span class="stat-value" th:text="${@money.plain(v.totalAssets())}">5,284,000</span>
+				<span class="stat-note">股票＋現金</span>
+			</div>
+			<div class="stat-card">
+				<span class="stat-label">股票</span>
+				<span class="stat-value" th:text="${@money.plain(v.stockValue())}">0</span>
+				<span class="stat-note">尚未有持股</span>
+			</div>
+			<div class="stat-card">
+				<span class="stat-label">現金</span>
+				<span class="stat-value" th:text="${@money.plain(v.cash())}">672,000</span>
+				<span class="stat-note">
+					<span th:text="|${v.accountCount()} 個帳戶|">2 個帳戶</span><span th:if="${v.cashSharePercent() != null}"
+							th:text="|，占總資產 ${v.cashSharePercent()}%|">，占總資產 100.00%</span>
+				</span>
+			</div>
+			<div class="stat-card">
+				<span class="stat-label">本月淨資產變動</span>
+				<span class="stat-value" th:classappend="${v.monthChange().total().signum() < 0} ? 'negative' : ''"
+						th:text="${@money.signed(v.monthChange().total())}">+19,132</span>
+				<span class="stat-note">
+					存入 <span th:text="${@money.plain(v.monthChange().deposits())}">0</span>
+					・領出 <span th:text="${@money.plain(v.monthChange().withdrawals())}">0</span>
+					・生活費 <span th:text="${@money.plain(v.monthChange().livingExpenses())}">0</span>
+					・餘額調整 <span th:text="${@money.signed(v.monthChange().adjustments())}">0</span>
+				</span>
+				<span class="stat-note muted">股票、配息、利息完成後才會完整</span>
+			</div>
+		</section>
+
+		<!-- 沒有任何帳戶時：引導去建立 -->
+		<section class="panel" th:if="${#lists.isEmpty(v.accounts())}">
+			<p>還沒有現金帳戶。先<a th:href="@{/settings/accounts/new}">新增一個帳戶</a>，再設定初始現金餘額。</p>
+		</section>
+
+		<!-- 資產配置 -->
+		<section class="panel" th:unless="${#lists.isEmpty(v.allocation())}">
+			<h2>資產配置</h2>
+			<p class="muted" th:if="${v.largest() != null}">
+				依金額排序；最大單一部位
+				<strong th:text="${v.largest().name()}">國泰交割戶</strong><span th:if="${v.largest().sharePercent() != null}"
+						th:text="|，占總資產 ${v.largest().sharePercent()}%|">，占總資產 60.00%</span>
+			</p>
+			<table class="table">
+				<thead><tr><th>項目</th><th class="num">金額</th><th class="num">占比</th></tr></thead>
+				<tbody>
+					<tr th:each="r : ${v.allocation()}">
+						<td th:text="${r.name()}">國泰交割戶</td>
+						<td class="num" th:text="${@money.plain(r.amount())}">588,000</td>
+						<td class="num" th:text="${r.sharePercent() != null} ? |${r.sharePercent()}%| : '—'">11.13%</td>
+					</tr>
+				</tbody>
+			</table>
+		</section>
+
+		<!-- 現金帳戶卡片 -->
+		<section class="account-grid" th:unless="${#lists.isEmpty(v.accounts())}" aria-label="現金帳戶">
+			<div class="account-card" th:each="a : ${v.accounts()}">
+				<div class="account-head">
+					<strong th:text="${a.name()}">證券交割戶</strong>
+					<span class="muted" th:text="${a.typeLabel()}">證券交割戶</span>
+				</div>
+				<span class="stat-value" th:classappend="${a.negative()} ? 'negative' : ''"
+						th:text="${@money.plain(a.balance())}">588,000</span>
+				<p class="muted" th:if="${a.lastReconciledOn() != null}">
+					上次對帳：<span th:text="${a.lastReconciledOn()}">2026-10-01</span>（餘額調整
+					<span th:text="${@money.signed(a.lastAdjustment())}">−26,111</span>）
+				</p>
+				<p class="muted" th:if="${a.lastReconciledOn() == null}">尚未輸入過實際餘額</p>
+				<p class="field-error" th:if="${a.reconcileOverdue()}">超過 30 天沒有對帳，記得輸入實際餘額</p>
+				<p class="field-error" th:if="${a.negative()}">餘額為負，請確認是否漏記存入</p>
+				<div class="form-actions">
+					<a class="btn btn-secondary" th:href="@{/assets/accounts/{id}/reconcile(id=${a.id()})}">輸入實際餘額</a>
+					<a class="btn btn-link" th:unless="${a.hasOpening()}" th:href="@{/assets/accounts/{id}/opening(id=${a.id()})}">設定初始現金餘額</a>
+				</div>
+			</div>
+		</section>
+
+		<!-- 最近的現金異動 -->
+		<section class="panel">
+			<div class="page-header">
+				<h2>最近的現金異動</h2>
+				<a th:href="@{/assets/movements}">全部異動</a>
+			</div>
+			<p class="muted" th:if="${#lists.isEmpty(v.recent())}">還沒有任何異動。</p>
+			<table class="table" th:unless="${#lists.isEmpty(v.recent())}">
+				<thead><tr><th>日期</th><th>帳戶</th><th>內容</th><th class="num">金額</th></tr></thead>
+				<tbody>
+					<tr th:each="m : ${v.recent()}">
+						<td th:text="${m.date()}">2026-10-07</td>
+						<td th:text="${m.accountLabel()}">銀行活存</td>
+						<td>
+							<span th:text="${m.description()}">存入 · 薪資入帳</span>
+							<span class="badge" th:if="${m.revised()}">曾修改</span>
+						</td>
+						<td class="num" th:replace="~{fragments/movement-amount :: amount(${m})}">+62,000</td>
+					</tr>
+				</tbody>
+			</table>
+		</section>
+	</main>
+</div>
+</body>
+</html>

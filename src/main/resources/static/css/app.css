@@ -9,6 +9,7 @@
 	--primary-dark: #174a96;
 	--error-bg: #fdecec;
 	--error-text: #b42318;
+	--success-text: #0b7a47;
 	--info-bg: #eaf2fd;
 	--info-text: #174a96;
 	--radius: 8px;
@@ -153,3 +154,21 @@ input[type="date"] { width: 100%; padding: 9px 12px; border: 1px solid var(--bor
 .inline-form input { width: 180px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; }
 .btn-secondary { background: var(--surface); border-color: var(--border); color: var(--text); padding: 6px 12px; }
 .btn-secondary:hover { border-color: var(--primary); color: var(--primary); }
+
+/* ---------- 總資產頁 ---------- */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 16px 0; }
+.stat-card, .account-card, .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
+.stat-card { display: flex; flex-direction: column; gap: 6px; }
+.stat-label { color: var(--muted); font-size: 0.9em; }
+.stat-value { font-size: 1.6em; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat-note { font-size: 0.85em; color: var(--muted); }
+.panel { margin: 16px 0; }
+.account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin: 16px 0; }
+.account-card { display: flex; flex-direction: column; gap: 8px; }
+.account-head { display: flex; justify-content: space-between; gap: 8px; }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.negative { color: var(--error-text); }
+.positive { color: var(--success-text); }
+.voided { color: var(--muted); text-decoration: line-through; }
+.month-nav { display: flex; gap: 16px; align-items: center; margin: 12px 0; }
+.label-text { font-weight: 600; margin-right: 8px; }

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title th:text="${movementId == null} ? '輸入實際餘額 · 台股資產帳本' : '修改實際餘額 · 台股資產帳本'">輸入實際餘額 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('assets')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/assets}">總資產</a> / 輸入實際餘額</p>
+		<h1 th:text="${movementId == null} ? '輸入實際餘額' : '修改實際餘額'">輸入實際餘額</h1>
+		<p>
+			<strong th:text="${account.name}">薪資帳戶</strong>
+			今天的系統推算餘額：<strong th:text="${@money.plain(systemBalance)}">12,345</strong> 元
+		</p>
+		<p class="muted">輸入存摺或 App 上看到的實際餘額。差額會記成「餘額調整」，計入本月淨資產變動。</p>
+
+		<form class="form-card" method="post" th:object="${form}"
+				th:action="${movementId == null} ? @{/assets/accounts/{id}/reconcile(id=${account.id})} : @{/assets/movements/{id}/edit-reconcile(id=${movementId})}">
+			<p class="alert alert-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}">錯誤訊息</p>
+
+			<label for="date">日期（那天結束時的餘額）</label>
+			<input id="date" type="date" th:field="*{date}" th:errorclass="field-invalid" required>
+			<p class="field-error" th:if="${#fields.hasErrors('date')}" th:errors="*{date}">錯誤訊息</p>
+
+			<label for="actualBalance">實際餘額（元，整數；透支可以填負數）</label>
+			<input id="actualBalance" type="text" inputmode="numeric" th:field="*{actualBalance}" th:errorclass="field-invalid" required>
+			<p class="field-error" th:if="${#fields.hasErrors('actualBalance')}" th:errors="*{actualBalance}">錯誤訊息</p>
+
+			<th:block th:if="${movementId != null}">
+				<label for="reason">修改原因（可不填）</label>
+				<input id="reason" name="reason" type="text" maxlength="200" th:value="${reason}">
+			</th:block>
+
+			<div class="form-actions">
+				<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">儲存</button>
+				<a class="btn btn-link" th:href="${movementId == null} ? @{/assets} : @{/assets/movements}">取消</a>
+			</div>
+		</form>
+	</main>
+</div>
+</body>
+</html>

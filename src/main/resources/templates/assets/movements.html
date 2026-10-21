@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>全部異動 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('assets')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/assets}">總資產</a> / 全部異動</p>
+		<div class="page-header">
+			<h1>全部異動</h1>
+			<a class="btn btn-primary" th:href="@{/assets/movements/new}">記一筆現金異動</a>
+		</div>
+
+		<p class="alert alert-info" th:if="${message}" th:text="${message}">已修改</p>
+
+		<nav class="month-nav" aria-label="切換月份">
+			<a th:href="@{/assets/movements(month=${prevMonth})}" th:text="|← ${prevMonth}|">← 2026-09</a>
+			<strong th:text="${month}">2026-10</strong>
+			<a th:href="@{/assets/movements(month=${nextMonth})}" th:text="|${nextMonth} →|">2026-11 →</a>
+		</nav>
+
+		<p class="muted" th:if="${#lists.isEmpty(rows)}">這個月沒有任何異動。</p>
+		<table class="table" th:unless="${#lists.isEmpty(rows)}">
+			<thead><tr><th>日期</th><th>帳戶</th><th>內容</th><th class="num">金額</th><th>操作</th></tr></thead>
+			<tbody>
+				<tr th:each="m : ${rows}" th:classappend="${m.voided()} ? 'voided' : ''">
+					<td th:text="${m.date()}">2026-10-07</td>
+					<td th:text="${m.accountLabel()}">銀行活存</td>
+					<td>
+						<span th:text="${m.description()}">存入 · 薪資入帳</span>
+						<!-- 作廢也會寫修改紀錄，所以「已作廢」優先，不再顯示「曾修改」 -->
+						<span class="badge" th:if="${m.voided()}">已作廢</span>
+						<span class="badge" th:if="${m.revised() and !m.voided()}">曾修改</span>
+					</td>
+					<td class="num" th:replace="~{fragments/movement-amount :: amount(${m})}">+62,000</td>
+					<td>
+						<th:block th:unless="${m.voided()}">
+							<a th:href="@{/assets/movements/{id}/edit(id=${m.id()})}">修改</a>
+							<form class="inline-form" method="post" th:action="@{/assets/movements/{id}/void(id=${m.id()})}"
+									data-confirm="確定要作廢這筆嗎？作廢後不再計入金額，但會留下紀錄。">
+								<input type="text" name="reason" maxlength="200" placeholder="作廢原因（可不填）"
+										th:attr="aria-label=|作廢 ${m.date()} 這筆的原因|">
+								<button type="submit" class="btn btn-secondary" data-busy-text="作廢中…">作廢</button>
+							</form>
+						</th:block>
+					</td>
+				</tr>
+			</tbody>
+		</table>
+	</main>
+</div>
+</body>
+</html>
