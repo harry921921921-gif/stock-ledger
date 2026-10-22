@@ -31,7 +31,7 @@ import com.sideproject.stockledger.repository.CashMovementRevisionRepository;
 import com.sideproject.stockledger.security.CurrentUser;
 
 /**
- * 現金異動：存入、領出、帳戶互轉、初始現金餘額、輸入實際餘額，以及修改與作廢（spec 4.6、4.9、DR-032、DR-033）。
+ * 現金異動：存入、支出、帳戶互轉、初始現金餘額、輸入實際餘額，以及修改與作廢（spec 4.6、4.9、DR-032、DR-033）。
  * 方法參數故意沒有 userId：一律用 {@link CurrentUser#id()}；別人的帳戶或異動在這裡等於「不存在」（404）。
  */
 @Service
@@ -71,12 +71,12 @@ public class CashMovementService {
 
 	// ---------- 新增 ----------
 
-	/** 記一筆存入、領出、生活費或帳戶互轉。 */
+	/** 記一筆存入、支出或帳戶互轉。 */
 	@Transactional
 	public CashMovement record(CashMovementForm form) {
 		Long userId = currentUser.id();
 		if (!isAmountMovement(form.type())) {
-			throw new CashValidationException("請選擇存入、領出、生活費或帳戶互轉");
+			throw new CashValidationException("請選擇存入、支出或帳戶互轉");
 		}
 		Accounts resolved = validateAmountMovement(userId, form.type(), form);
 		return save(CashMovement.ofAmount(userId, form.type(), form.date(), resolved.from(), resolved.to(),
@@ -110,13 +110,13 @@ public class CashMovementService {
 
 	// ---------- 修改與作廢（spec 4.9） ----------
 
-	/** 修改存入、領出、生活費或互轉。類型不能改；每個改到的欄位寫一列修改紀錄，沒有改變就什麼都不做。 */
+	/** 修改存入、支出或互轉。類型不能改；每個改到的欄位寫一列修改紀錄，沒有改變就什麼都不做。 */
 	@Transactional
 	public CashMovement edit(Long id, CashMovementForm form, String reason) {
 		Long userId = currentUser.id();
 		CashMovement m = findMineForEdit(id);
 		if (!isAmountMovement(m.getType())) {
-			throw new CashValidationException("這筆不是存入、領出、生活費或互轉，請用對應的修改畫面");
+			throw new CashValidationException("這筆不是存入、支出或互轉，請用對應的修改畫面");
 		}
 		if (form.type() != null && form.type() != m.getType()) {
 			throw new CashValidationException("類型不能修改；要改類型請作廢後重新記一筆");
@@ -193,6 +193,16 @@ public class CashMovementService {
 		return movements.findByUserIdOrderByMovementDateDescIdDesc(currentUser.id());
 	}
 
+	/**
+	 * 目前登入者備註包含 text 的異動（不分大小寫，含作廢的），新的在前；text 由呼叫端整理好。
+	 * %、_ 是 LIKE 的萬用字元，先跳脫成一般文字。
+	 */
+	@Transactional(readOnly = true)
+	public List<CashMovement> searchByNote(String text) {
+		String escaped = text.replace("!", "!!").replace("%", "!%").replace("_", "!_");
+		return movements.searchNote(currentUser.id(), "%" + escaped + "%");
+	}
+
 	/** 某個帳戶的初始現金餘額日期；沒有初始現金餘額時為 empty。 */
 	@Transactional(readOnly = true)
 	public Optional<LocalDate> openingDate(Long accountId) {
@@ -210,12 +220,16 @@ public class CashMovementService {
 		return new CashMovementForm(CashMovementType.DEPOSIT, today(), null, null, null, null);
 	}
 
-	/** 修改存入、領出、生活費、互轉的表單預設值（金額轉成整數元，不顯示資料庫的 62000.0000）。 */
+	/**
+	 * 修改存入、支出、互轉的表單預設值（金額轉成整數元，不顯示資料庫的 62000.0000）。
+	 * 存入的帳戶放在「轉入帳戶」，支出放在「轉出帳戶」，互轉兩個都有。
+	 */
 	@Transactional(readOnly = true)
 	public CashMovementForm movementForm(Long id) {
 		CashMovement m = find(id);
-		return new CashMovementForm(m.getType(), m.getMovementDate(), m.getAccountId(), m.getToAccountId(),
-				wholeDollars(m.getAmount()), m.getNote());
+		boolean deposit = m.getType() == CashMovementType.DEPOSIT;
+		return new CashMovementForm(m.getType(), m.getMovementDate(), deposit ? null : m.getAccountId(),
+				deposit ? m.getAccountId() : m.getToAccountId(), wholeDollars(m.getAmount()), m.getNote());
 	}
 
 	/** 修改初始現金餘額的表單預設值。 */
@@ -252,41 +266,53 @@ public class CashMovementService {
 
 	// ---------- 檢查 ----------
 
+	/**
+	 * 存進資料表的帳戶：from 是錢動到的帳戶（account_id；存入時是轉入帳戶，支出與互轉時是轉出帳戶），
+	 * to 只有互轉才有（to_account_id）。
+	 */
 	private record Accounts(Long from, Long to) {
 	}
 
 	private static boolean isAmountMovement(CashMovementType type) {
 		return type == CashMovementType.DEPOSIT || type == CashMovementType.WITHDRAWAL
-				|| type == CashMovementType.LIVING_EXPENSE || type == CashMovementType.TRANSFER;
+				|| type == CashMovementType.TRANSFER;
 	}
 
-	/** 存入、領出、生活費、互轉共用的檢查（新增與修改都用）。 */
+	/** 存入、支出、互轉共用的檢查（新增與修改都用）。 */
 	private Accounts validateAmountMovement(Long userId, CashMovementType type, CashMovementForm form) {
-		CashAccount from = findMyAccount(form.accountId());
-		Long to = null;
-		if (type != CashMovementType.TRANSFER && form.toAccountId() != null) {
-			throw new CashValidationException("只有帳戶互轉要選轉入帳戶");
+		// 沒有 JavaScript 時畫面兩個帳戶欄位都會顯示：選了用不到的欄位要提醒，而不是默默忽略
+		boolean usesFrom = type != CashMovementType.DEPOSIT;
+		boolean usesTo = type != CashMovementType.WITHDRAWAL;
+		if (!usesFrom && form.fromAccountId() != null) {
+			throw new CashValidationException(type.label() + "不用選轉出帳戶");
 		}
-		if (type == CashMovementType.TRANSFER) {
-			if (form.toAccountId() == null) {
-				throw new CashValidationException("請選擇轉入帳戶");
-			}
-			to = findMyAccount(form.toAccountId()).getId();
-			if (to.equals(from.getId())) {
-				throw new CashValidationException("轉出和轉入不能是同一個帳戶");
-			}
+		if (!usesTo && form.toAccountId() != null) {
+			throw new CashValidationException(type.label() + "不用選轉入帳戶");
 		}
+		if (usesFrom && form.fromAccountId() == null) {
+			throw new CashValidationException("請選擇轉出帳戶");
+		}
+		if (usesTo && form.toAccountId() == null) {
+			throw new CashValidationException("請選擇轉入帳戶");
+		}
+		Long fromId = usesFrom ? findMyAccount(form.fromAccountId()).getId() : null;
+		Long toId = usesTo ? findMyAccount(form.toAccountId()).getId() : null;
+		if (fromId != null && fromId.equals(toId)) {
+			throw new CashValidationException("轉出和轉入不能是同一個帳戶");
+		}
+		Long moved = type == CashMovementType.DEPOSIT ? toId : fromId;
+		Long to = type == CashMovementType.TRANSFER ? toId : null;
 		checkPositiveWholeAmount(form.amount());
 		checkDate(form.date());
 		// 表單已經檢查過；之後給 App 用的 REST API 不一定有，超過欄位長度會變成資料庫錯誤（500）
 		if (form.note() != null && form.note().length() > MAX_NOTE_LENGTH) {
-			throw new CashValidationException("說明最多 100 個字");
+			throw new CashValidationException("備註最多 100 個字");
 		}
-		checkNotBeforeOpening(userId, from.getId(), form.date());
+		checkNotBeforeOpening(userId, moved, form.date());
 		if (to != null) {
 			checkNotBeforeOpening(userId, to, form.date());
 		}
-		return new Accounts(from.getId(), to);
+		return new Accounts(moved, to);
 	}
 
 	/** 初始現金餘額是起點：不能晚於這個帳戶已經記過的其他異動。selfId 是修改中的那筆（新增時為 null）。 */

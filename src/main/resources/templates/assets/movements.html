@@ -19,13 +19,28 @@
 
 		<p class="alert alert-info" th:if="${message}" th:text="${message}">已修改</p>
 
-		<nav class="month-nav" aria-label="切換月份">
-			<a th:href="@{/assets/movements(month=${prevMonth})}" th:text="|← ${prevMonth}|">← 2026-09</a>
-			<strong th:text="${month}">2026-10</strong>
-			<a th:href="@{/assets/movements(month=${nextMonth})}" th:text="|${nextMonth} →|">2026-11 →</a>
-		</nav>
+		<!-- 備註搜尋（spec 4.6-9）：有搜尋字時列出所有月份的結果，不顯示月份切換 -->
+		<form class="search-form" method="get" th:action="@{/assets/movements}" role="search">
+			<input type="search" name="q" maxlength="50" placeholder="搜尋備註" aria-label="搜尋備註"
+					th:value="${search != null} ? ${search.query()} : ''">
+			<button type="submit" class="btn btn-secondary">搜尋</button>
+			<a th:if="${search != null}" th:href="@{/assets/movements}">清除搜尋</a>
+		</form>
 
-		<p class="muted" th:if="${#lists.isEmpty(rows)}">這個月沒有任何異動。</p>
+		<th:block th:if="${search != null}">
+			<p class="alert alert-error" th:if="${search.error()}" th:text="${search.error()}">搜尋字最多 50 個字</p>
+			<p th:unless="${search.error()}">搜尋「<strong th:text="${search.query()}">保險</strong>」的結果（所有月份）</p>
+			<p class="muted" th:if="${search.error() == null and #lists.isEmpty(rows)}">沒有符合的異動。</p>
+		</th:block>
+
+		<th:block th:if="${search == null}">
+			<nav class="month-nav" aria-label="切換月份">
+				<a th:href="@{/assets/movements(month=${prevMonth})}" th:text="|← ${prevMonth}|">← 2026-09</a>
+				<strong th:text="${month}">2026-10</strong>
+				<a th:href="@{/assets/movements(month=${nextMonth})}" th:text="|${nextMonth} →|">2026-11 →</a>
+			</nav>
+			<p class="muted" th:if="${#lists.isEmpty(rows)}">這個月沒有任何異動。</p>
+		</th:block>
 		<table class="table" th:unless="${#lists.isEmpty(rows)}">
 			<thead><tr><th>日期</th><th>帳戶</th><th>內容</th><th class="num">金額</th><th>操作</th></tr></thead>
 			<tbody>

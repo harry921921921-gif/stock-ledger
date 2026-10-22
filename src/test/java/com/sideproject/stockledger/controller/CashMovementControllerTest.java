@@ -86,7 +86,7 @@ class CashMovementControllerTest {
 				.param("formToken", token)
 				.param("type", "DEPOSIT")
 				.param("date", today.toString())
-				.param("accountId", bank.toString())
+				.param("toAccountId", bank.toString())
 				.param("amount", "62000")
 				.param("note", "薪資入帳"))
 			.andExpect(redirectedUrl("/assets"));
@@ -108,7 +108,7 @@ class CashMovementControllerTest {
 					.param("formToken", token)
 					.param("type", "DEPOSIT")
 					.param("date", today.toString())
-					.param("accountId", bank.toString())
+					.param("toAccountId", bank.toString())
 					.param("amount", "100"))
 				.andExpect(redirectedUrl("/assets"));
 		}
@@ -125,11 +125,11 @@ class CashMovementControllerTest {
 
 		mvc.perform(post("/assets/movements/new").session(session).with(csrf())
 				.param("formToken", token).param("type", "DEPOSIT").param("date", today.toString())
-				.param("accountId", bank.toString()).param("amount", "100.5"))
+				.param("toAccountId", bank.toString()).param("amount", "100.5"))
 			.andExpect(status().isOk());
 		mvc.perform(post("/assets/movements/new").session(session).with(csrf())
 				.param("formToken", token).param("type", "DEPOSIT").param("date", today.toString())
-				.param("accountId", bank.toString()).param("amount", "100"))
+				.param("toAccountId", bank.toString()).param("amount", "100"))
 			.andExpect(redirectedUrl("/assets"));
 
 		assertThat(movementCount()).isEqualTo(1);
@@ -143,18 +143,18 @@ class CashMovementControllerTest {
 
 		mvc.perform(post("/assets/movements/new").session(session).with(csrf())
 				.param("formToken", token).param("type", "DEPOSIT").param("date", today.toString())
-				.param("accountId", bank.toString()).param("amount", "abc"))
+				.param("toAccountId", bank.toString()).param("amount", "abc"))
 			.andExpect(status().isOk())
 			.andExpect(content().string(containsString("請輸入整數金額")))
 			.andExpect(content().string(not(containsString("java."))));
 		mvc.perform(post("/assets/movements/new").session(session).with(csrf())
 				.param("formToken", token).param("type", "DEPOSIT").param("date", today.toString())
-				.param("accountId", bank.toString()).param("amount", "100.5"))
+				.param("toAccountId", bank.toString()).param("amount", "100.5"))
 			.andExpect(status().isOk())
 			.andExpect(content().string(containsString("金額只能是整數元")));
 		mvc.perform(post("/assets/movements/new").session(session).with(csrf())
 				.param("formToken", token).param("type", "DEPOSIT").param("date", "")
-				.param("accountId", bank.toString()).param("amount", "100"))
+				.param("toAccountId", bank.toString()).param("amount", "100"))
 			.andExpect(status().isOk())
 			.andExpect(content().string(containsString("請選擇日期")));
 
@@ -244,7 +244,7 @@ class CashMovementControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(content().string(containsString("修改原因")));
 		mvc.perform(post("/assets/movements/{id}/edit", id).with(csrf())
-				.param("type", "DEPOSIT").param("date", today.toString()).param("accountId", bank.toString())
+				.param("type", "DEPOSIT").param("date", today.toString()).param("toAccountId", bank.toString())
 				.param("amount", "150").param("reason", "金額打錯"))
 			.andExpect(redirectedUrl("/assets/movements?month=" + YearMonth.from(today)));
 		mvc.perform(get("/assets/movements"))
@@ -284,7 +284,7 @@ class CashMovementControllerTest {
 	@WithUserDetails(value = "mc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
 	void formsRequireCsrfAndLoadGuard() throws Exception {
 		mvc.perform(post("/assets/movements/new")
-				.param("type", "DEPOSIT").param("date", today.toString()).param("accountId", bank.toString())
+				.param("type", "DEPOSIT").param("date", today.toString()).param("toAccountId", bank.toString())
 				.param("amount", "100"))
 			.andExpect(status().isForbidden());
 		for (String url : new String[] { "/assets/movements/new", "/assets/accounts/" + bank + "/reconcile",
@@ -330,11 +330,11 @@ class CashMovementControllerTest {
 
 		mvc.perform(post("/assets/movements/new").session(session).with(csrf())
 				.param("formToken", token).param("type", "DEPOSIT").param("date", today.toString())
-				.param("accountId", benAccount.toString()).param("amount", "100"))
+				.param("toAccountId", benAccount.toString()).param("amount", "100"))
 			.andExpect(status().isNotFound());
 		mvc.perform(post("/assets/movements/new").session(session).with(csrf())
 				.param("formToken", token).param("type", "DEPOSIT").param("date", today.toString())
-				.param("accountId", bank.toString()).param("amount", "100"))
+				.param("toAccountId", bank.toString()).param("amount", "100"))
 			.andExpect(redirectedUrl("/assets"));
 
 		assertThat(movementCount()).isEqualTo(1);
@@ -365,31 +365,31 @@ class CashMovementControllerTest {
 			.andExpect(status().isOk());
 	}
 
-	/** 存入、領出選了轉入帳戶：提醒，而不是默默忽略（審核 Minor）。 */
+	/** 存入選了轉出帳戶：提醒，而不是默默忽略（沒有 JavaScript 時兩個帳戶欄位都會顯示）。 */
 	@Test
 	@WithUserDetails(value = "mc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
-	void depositWithTargetAccountRejected() throws Exception {
+	void depositWithSourceAccountRejected() throws Exception {
 		MockHttpSession session = new MockHttpSession();
 		String token = openNewForm(session);
 
 		mvc.perform(post("/assets/movements/new").session(session).with(csrf())
 				.param("formToken", token).param("type", "DEPOSIT").param("date", today.toString())
-				.param("accountId", bank.toString()).param("toAccountId", settlement.toString()).param("amount", "100"))
+				.param("fromAccountId", settlement.toString()).param("toAccountId", bank.toString()).param("amount", "100"))
 			.andExpect(status().isOk())
-			.andExpect(content().string(containsString("只有帳戶互轉要選轉入帳戶")));
+			.andExpect(content().string(containsString("存入不用選轉出帳戶")));
 	}
 
 	@Test
 	@WithUserDetails(value = "mc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
-	void transferViaFormAndEmptyTargetForDeposit() throws Exception {
+	void transferViaFormAndEmptySourceForDeposit() throws Exception {
 		MockHttpSession session = new MockHttpSession();
 		mvc.perform(post("/assets/movements/new").session(session).with(csrf())
 				.param("formToken", openNewForm(session)).param("type", "TRANSFER").param("date", today.toString())
-				.param("accountId", bank.toString()).param("toAccountId", settlement.toString()).param("amount", "300"))
+				.param("fromAccountId", bank.toString()).param("toAccountId", settlement.toString()).param("amount", "300"))
 			.andExpect(redirectedUrl("/assets"));
 		mvc.perform(post("/assets/movements/new").session(session).with(csrf())
 				.param("formToken", openNewForm(session)).param("type", "DEPOSIT").param("date", today.toString())
-				.param("accountId", bank.toString()).param("toAccountId", "").param("amount", "100"))
+				.param("fromAccountId", "").param("toAccountId", bank.toString()).param("amount", "100"))
 			.andExpect(redirectedUrl("/assets"));
 
 		assertThat(movementCount()).isEqualTo(2);
@@ -410,41 +410,75 @@ class CashMovementControllerTest {
 			.andExpect(redirectedUrl("/assets/movements/" + opening + "/edit"));
 	}
 
+	/** 類型只有存入、支出、帳戶互轉；生活費類型已取消（DR-035）。 */
 	@Test
 	@WithUserDetails(value = "mc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
-	void livingExpenseViaFormShowsOnAssetsPage() throws Exception {
-		MockHttpSession session = new MockHttpSession();
-		mvc.perform(get("/assets/movements/new").session(session))
-			.andExpect(content().string(containsString("<option value=\"LIVING_EXPENSE\">生活費</option>")));
-		mvc.perform(post("/assets/movements/new").session(session).with(csrf())
-				.param("formToken", openNewForm(session)).param("type", "LIVING_EXPENSE").param("date", today.toString())
-				.param("accountId", bank.toString()).param("amount", "27000").param("note", "10 月生活費"))
-			.andExpect(redirectedUrl("/assets"));
+	void onlyDepositWithdrawalAndTransferOffered() throws Exception {
+		mvc.perform(get("/assets/movements/new"))
+			.andExpect(content().string(containsString("value=\"DEPOSIT\"")))
+			.andExpect(content().string(containsString("<option value=\"WITHDRAWAL\">支出</option>")))
+			.andExpect(content().string(containsString("<option value=\"TRANSFER\">帳戶互轉</option>")))
+			.andExpect(content().string(not(containsString("LIVING_EXPENSE"))))
+			.andExpect(content().string(not(containsString("領出"))));
+	}
 
-		mvc.perform(get("/assets"))
-			.andExpect(content().string(containsString("生活費")))
-			.andExpect(content().string(containsString(">−27,000<")));
+	/**
+	 * 欄位：日期、轉出帳戶、轉入帳戶、金額、備註，標籤不加括號說明（DR-035）。
+	 * 帳戶欄位依類型由 app.js 顯示或隱藏（data-show-for）；沒有 JavaScript 時兩個都顯示，所以都有「請選擇」。
+	 */
+	@Test
+	@WithUserDetails(value = "mc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void formHasFromAndToAccountFields() throws Exception {
+		mvc.perform(get("/assets/movements/new"))
+			.andExpect(content().string(containsString("<label for=\"fromAccountId\">轉出帳戶</label>")))
+			.andExpect(content().string(containsString("<label for=\"toAccountId\">轉入帳戶</label>")))
+			.andExpect(content().string(containsString("<label for=\"amount\">金額</label>")))
+			.andExpect(content().string(containsString("<label for=\"note\">備註</label>")))
+			.andExpect(content().string(containsString("data-show-for=\"WITHDRAWAL TRANSFER\"")))
+			.andExpect(content().string(containsString("data-show-for=\"DEPOSIT TRANSFER\"")))
+			.andExpect(content().string(containsString("<option value=\"\">請選擇</option>")))
+			.andExpect(content().string(not(containsString("說明"))));
+	}
+
+	/** 備註搜尋（spec 4.6-9）：有搜尋字時列出所有月份的結果，不顯示月份切換。 */
+	@Test
+	@WithUserDetails(value = "mc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void searchShowsResultsWithoutMonthNav() throws Exception {
+		jdbc.update("UPDATE cash_movement SET note = '年繳保險' WHERE id = ?",
+				insertDeposit(bank, today.minusMonths(2), 100));
+
+		mvc.perform(get("/assets/movements").param("q", "保險"))
+			.andExpect(status().isOk())
+			.andExpect(content().string(containsString("存入 · 年繳保險")))
+			.andExpect(content().string(containsString("清除搜尋")))
+			.andExpect(content().string(containsString("name=\"q\"")))
+			.andExpect(content().string(not(containsString("切換月份"))));
+		mvc.perform(get("/assets/movements").param("q", "找不到"))
+			.andExpect(content().string(containsString("沒有符合的異動")));
 	}
 
 	@Test
 	@WithUserDetails(value = "mc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
-	void livingExpenseCanBeEditedAndVoided() throws Exception {
-		Long id = insertMovement("LIVING_EXPENSE", bank, today, "27000", null);
-
-		mvc.perform(get("/assets/movements/{id}/edit", id))
+	void blankOrTooLongSearch() throws Exception {
+		mvc.perform(get("/assets/movements").param("q", "   "))
 			.andExpect(status().isOk())
-			.andExpect(content().string(containsString("生活費")))
-			.andExpect(content().string(containsString("value=\"27000\"")));
-		mvc.perform(post("/assets/movements/{id}/edit", id).with(csrf())
-				.param("type", "LIVING_EXPENSE").param("date", today.toString()).param("accountId", bank.toString())
-				.param("amount", "25000").param("reason", "算錯"))
-			.andExpect(status().is3xxRedirection());
-		mvc.perform(post("/assets/movements/{id}/void", id).with(csrf()))
-			.andExpect(status().is3xxRedirection());
+			.andExpect(content().string(containsString("切換月份")));
+		mvc.perform(get("/assets/movements").param("q", "字".repeat(51)))
+			.andExpect(status().isOk())
+			.andExpect(content().string(containsString("搜尋字最多 50 個字")));
+	}
 
-		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cash_movement_revision WHERE cash_movement_id = ?",
-				Integer.class, id)).isEqualTo(2);
-		assertThat(jdbc.queryForObject("SELECT voided FROM cash_movement WHERE id = ?", Boolean.class, id)).isTrue();
+	/** 修改存入時，帳戶帶在「轉入帳戶」（資料表存在 account_id）。 */
+	@Test
+	@WithUserDetails(value = "mc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void editDepositPrefillsToAccount() throws Exception {
+		Long id = insertDeposit(bank, today, 100);
+
+		String html = mvc.perform(get("/assets/movements/{id}/edit", id))
+			.andReturn().getResponse().getContentAsString();
+		String toSelect = html.substring(html.indexOf("id=\"toAccountId\""), html.indexOf("</select>",
+				html.indexOf("id=\"toAccountId\"")));
+		assertThat(toSelect).contains("value=\"" + bank + "\" selected=\"selected\"");
 	}
 
 	/** 作廢前跳出確認框（使用者決定）：表單帶 data-confirm，由 app.js 顯示。 */

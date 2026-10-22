@@ -42,7 +42,7 @@ public final class CashLedgerCalculator {
 			.forEach(e -> {
 				switch (e.type()) {
 					case OPENING, DEPOSIT -> add(balances, e.accountId(), e.amount());
-					case WITHDRAWAL, LIVING_EXPENSE -> add(balances, e.accountId(), e.amount().negate());
+					case WITHDRAWAL -> add(balances, e.accountId(), e.amount().negate());
 					case TRANSFER -> {
 						add(balances, e.accountId(), e.amount().negate());
 						add(balances, e.toAccountId(), e.amount());
@@ -59,13 +59,12 @@ public final class CashLedgerCalculator {
 		return new CashLedger(Map.copyOf(balances), Map.copyOf(adjustments), Map.copyOf(lastReconciliation));
 	}
 
-	/** 本月存入、領出、生活費與餘額調整；初始現金餘額（起點）與帳戶互轉（左手換右手）不算（spec 4.3-2）。 */
+	/** 本月存入、支出與餘額調整；初始現金餘額（起點）與帳戶互轉（左手換右手）不算（spec 4.3-2）。 */
 	public static MonthlyCashChange monthlyChange(List<CashEvent> events, YearMonth month) {
 		Objects.requireNonNull(month, "month");
 		Map<Long, BigDecimal> adjustments = compute(events, month.atEndOfMonth()).adjustments();
 		BigDecimal deposits = BigDecimal.ZERO;
 		BigDecimal withdrawals = BigDecimal.ZERO;
-		BigDecimal living = BigDecimal.ZERO;
 		BigDecimal adjusted = BigDecimal.ZERO;
 		for (CashEvent e : events) {
 			if (!YearMonth.from(e.date()).equals(month)) {
@@ -74,15 +73,13 @@ public final class CashLedgerCalculator {
 			switch (e.type()) {
 				case DEPOSIT -> deposits = deposits.add(e.amount());
 				case WITHDRAWAL -> withdrawals = withdrawals.add(e.amount());
-				case LIVING_EXPENSE -> living = living.add(e.amount());
 				case RECONCILE -> adjusted = adjusted.add(adjustments.get(e.id()));
 				case OPENING, TRANSFER -> {
 					// 不算變動
 				}
 			}
 		}
-		return new MonthlyCashChange(deposits, withdrawals, living, adjusted,
-				deposits.subtract(withdrawals).subtract(living).add(adjusted));
+		return new MonthlyCashChange(deposits, withdrawals, adjusted, deposits.subtract(withdrawals).add(adjusted));
 	}
 
 	private static void add(Map<Long, BigDecimal> balances, Long accountId, BigDecimal delta) {

@@ -25,6 +25,30 @@ document.addEventListener('submit', function (event) {
 	});
 });
 
+// 依類型只顯示需要的欄位：<div data-show-for="DEPOSIT TRANSFER"> 只在 #type 是其中之一時顯示。
+// 隱藏的欄位同時設 disabled，表單送出時就不會帶上切換類型前選的舊值。
+// 沒有 JavaScript 時所有欄位都顯示，伺服器照類型檢查。
+(function () {
+	var type = document.getElementById('type');
+	var sections = document.querySelectorAll('[data-show-for]');
+	if (!type || sections.length === 0) {
+		return;
+	}
+	function apply() {
+		sections.forEach(function (section) {
+			var show = section.dataset.showFor.split(' ').indexOf(type.value) >= 0;
+			section.hidden = !show;
+			section.querySelectorAll('input, select, textarea').forEach(function (field) {
+				field.disabled = !show;
+			});
+		});
+	}
+	type.addEventListener('change', apply);
+	// 按「上一頁」回來時瀏覽器會還原之前選的類型，要再套用一次
+	window.addEventListener('pageshow', apply);
+	apply();
+})();
+
 // 按「上一頁」回到表單時，瀏覽器可能還原「按鈕已鎖住」的畫面，要解鎖才能再送出。
 // 每次顯示頁面都解鎖，不只 bfcache（Firefox 從一般快取重新載入時也會還原 disabled，而且 event.persisted 是 false）。
 window.addEventListener('pageshow', function () {

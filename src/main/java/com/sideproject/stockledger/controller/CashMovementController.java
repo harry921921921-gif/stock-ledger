@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.sideproject.stockledger.dto.CashMovementForm;
+import com.sideproject.stockledger.dto.MovementSearch;
 import com.sideproject.stockledger.dto.OpeningForm;
 import com.sideproject.stockledger.dto.ReconcileForm;
 import com.sideproject.stockledger.entity.CashAccount;
@@ -61,7 +62,7 @@ public class CashMovementController {
 	@ModelAttribute("movementTypes")
 	public CashMovementType[] movementTypes() {
 		return new CashMovementType[] { CashMovementType.DEPOSIT, CashMovementType.WITHDRAWAL,
-				CashMovementType.LIVING_EXPENSE, CashMovementType.TRANSFER };
+				CashMovementType.TRANSFER };
 	}
 
 	// ---------- 記一筆現金異動 ----------
@@ -106,8 +107,16 @@ public class CashMovementController {
 
 	// ---------- 全部異動 ----------
 
+	/** 有搜尋字（q）時列出所有月份的搜尋結果；沒有就依月份瀏覽。 */
 	@GetMapping("/assets/movements")
-	public String list(@RequestParam(required = false) String month, Model model) {
+	public String list(@RequestParam(required = false) String month, @RequestParam(required = false) String q,
+			Model model) {
+		if (q != null && !q.isBlank()) {
+			MovementSearch search = totalAssets.search(q);
+			model.addAttribute("search", search);
+			model.addAttribute("rows", search.rows());
+			return "assets/movements";
+		}
 		YearMonth selected = parseMonth(month);
 		model.addAttribute("month", selected);
 		model.addAttribute("prevMonth", selected.minusMonths(1));
@@ -137,7 +146,7 @@ public class CashMovementController {
 				addReconcileContext(model, m.getAccountId());
 				yield RECONCILE_FORM;
 			}
-			case DEPOSIT, WITHDRAWAL, LIVING_EXPENSE, TRANSFER -> {
+			case DEPOSIT, WITHDRAWAL, TRANSFER -> {
 				model.addAttribute("form", movements.movementForm(id));
 				yield MOVEMENT_FORM;
 			}

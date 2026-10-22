@@ -65,7 +65,7 @@ public class CashMovement {
 		// JPA 需要
 	}
 
-	/** 存入、領出、生活費、互轉、初始現金餘額。toAccountId 只有互轉才有。 */
+	/** 存入、支出、互轉、初始現金餘額。toAccountId 只有互轉才有。 */
 	public static CashMovement ofAmount(Long userId, CashMovementType type, LocalDate date, Long accountId,
 			Long toAccountId, BigDecimal amount, String note, LocalDateTime now) {
 		if (type == CashMovementType.RECONCILE) {
@@ -96,7 +96,7 @@ public class CashMovement {
 		return m;
 	}
 
-	/** 修改存入、領出、生活費、互轉、初始現金餘額（類型不能改；呼叫端先寫修改紀錄）。 */
+	/** 修改存入、支出、互轉、初始現金餘額（類型不能改；呼叫端先寫修改紀錄）。 */
 	public void change(LocalDate date, Long newAccountId, Long newToAccountId, BigDecimal newAmount, String newNote) {
 		requireNotVoided();
 		if (type == CashMovementType.RECONCILE) {

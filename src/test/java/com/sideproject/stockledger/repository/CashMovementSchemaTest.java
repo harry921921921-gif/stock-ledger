@@ -184,14 +184,11 @@ class CashMovementSchemaTest {
 			.satisfies(violates("ck_cash_movement_reconcile"));
 	}
 
-	/** V6 放寬類型限制：生活費可以寫入，而且和存入、領出一樣要有正的整數金額。 */
+	/** V7 取消生活費類型（DR-035）：資料庫不再接受 LIVING_EXPENSE。 */
 	@Test
-	void dbAcceptsLivingExpense() {
-		assertThatCode(() -> insert("LIVING_EXPENSE", accountA, null, "27000", null, false)).doesNotThrowAnyException();
-		assertThatThrownBy(() -> insert("LIVING_EXPENSE", accountA, null, "0", null, false))
-			.satisfies(violates("ck_cash_movement_amount"));
-		assertThatThrownBy(() -> insert("LIVING_EXPENSE", accountA, accountB, "100", null, false))
-			.satisfies(violates("ck_cash_movement_transfer"));
+	void dbRejectsLivingExpense() {
+		assertThatThrownBy(() -> insert("LIVING_EXPENSE", accountA, null, "27000", null, false))
+			.satisfies(violates("ck_cash_movement_type"));
 	}
 
 	@Test

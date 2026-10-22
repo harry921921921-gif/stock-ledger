@@ -171,4 +171,6 @@ input[type="date"] { width: 100%; padding: 9px 12px; border: 1px solid var(--bor
 .positive { color: var(--success-text); }
 .voided { color: var(--muted); text-decoration: line-through; }
 .month-nav { display: flex; gap: 16px; align-items: center; margin: 12px 0; }
+.search-form { display: flex; gap: 8px; align-items: center; margin: 12px 0; }
+.search-form input { width: 260px; max-width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; }
 .label-text { font-weight: 600; margin-right: 8px; }

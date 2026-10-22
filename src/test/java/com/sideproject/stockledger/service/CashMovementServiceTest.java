@@ -143,17 +143,65 @@ class CashMovementServiceTest {
 			.isInstanceOf(CashValidationException.class);
 	}
 
-	/** 不經過表單檢查時（之後的 REST API），超過 100 字的說明也要是中文錯誤，不是 500（審核 Minor）。 */
+	/** 不經過表單檢查時（之後的 REST API），超過 100 字的備註也要是中文錯誤，不是 500（審核 Minor）。 */
 	@Test
 	void longNoteRejectedByService() {
 		assertThatThrownBy(() -> service.record(form(CashMovementType.DEPOSIT, today, bank, null, "100", "長".repeat(101))))
 			.isInstanceOf(CashValidationException.class)
-			.hasMessage("說明最多 100 個字");
+			.hasMessage("備註最多 100 個字");
+	}
+
+	/** 存入只選轉入帳戶；資料表照舊存在 account_id（錢動到的帳戶），to_account_id 只有互轉用（DR-035）。 */
+	@Test
+	void depositUsesToAccountOnly() {
+		Long id = service.record(new CashMovementForm(CashMovementType.DEPOSIT, today, null, bank,
+				new BigDecimal("62000"), null)).getId();
+
+		assertThat(jdbc.queryForMap("SELECT account_id, to_account_id FROM cash_movement WHERE id = ?", id))
+			.containsEntry("account_id", bank)
+			.containsEntry("to_account_id", null);
+	}
+
+	/** 沒有 JavaScript 時兩個帳戶欄位都會顯示：選了這個類型用不到的欄位要提醒，而不是默默忽略。 */
+	@Test
+	void unusedAccountFieldRejected() {
+		assertThatThrownBy(() -> service.record(new CashMovementForm(CashMovementType.DEPOSIT, today, settlement, bank,
+				BigDecimal.TEN, null))).isInstanceOf(CashValidationException.class).hasMessage("存入不用選轉出帳戶");
+		assertThatThrownBy(() -> service.record(new CashMovementForm(CashMovementType.WITHDRAWAL, today, bank,
+				settlement, BigDecimal.TEN, null))).isInstanceOf(CashValidationException.class)
+			.hasMessage("支出不用選轉入帳戶");
+	}
+
+	@Test
+	void requiredAccountFieldByType() {
+		assertThatThrownBy(() -> service.record(new CashMovementForm(CashMovementType.DEPOSIT, today, null, null,
+				BigDecimal.TEN, null))).isInstanceOf(CashValidationException.class).hasMessage("請選擇轉入帳戶");
+		assertThatThrownBy(() -> service.record(new CashMovementForm(CashMovementType.WITHDRAWAL, today, null, null,
+				BigDecimal.TEN, null))).isInstanceOf(CashValidationException.class).hasMessage("請選擇轉出帳戶");
+		assertThatThrownBy(() -> service.record(new CashMovementForm(CashMovementType.TRANSFER, today, null, bank,
+				BigDecimal.TEN, null))).isInstanceOf(CashValidationException.class).hasMessage("請選擇轉出帳戶");
+		assertThatThrownBy(() -> service.record(new CashMovementForm(CashMovementType.TRANSFER, today, bank, null,
+				BigDecimal.TEN, null))).isInstanceOf(CashValidationException.class).hasMessage("請選擇轉入帳戶");
+	}
+
+	/** 修改畫面要把帳戶帶到對的欄位：存入是轉入帳戶、支出是轉出帳戶、互轉兩個都有。 */
+	@Test
+	void editFormPrefillsAccountsByType() {
+		Long deposit = service.record(form(CashMovementType.DEPOSIT, today, bank, null, "100", null)).getId();
+		Long withdrawal = service.record(form(CashMovementType.WITHDRAWAL, today, bank, null, "50", null)).getId();
+		Long transfer = service.record(form(CashMovementType.TRANSFER, today, bank, settlement, "30", null)).getId();
+
+		assertThat(service.movementForm(deposit)).extracting(CashMovementForm::fromAccountId,
+				CashMovementForm::toAccountId).containsExactly(null, bank);
+		assertThat(service.movementForm(withdrawal)).extracting(CashMovementForm::fromAccountId,
+				CashMovementForm::toAccountId).containsExactly(bank, null);
+		assertThat(service.movementForm(transfer)).extracting(CashMovementForm::fromAccountId,
+				CashMovementForm::toAccountId).containsExactly(bank, settlement);
 	}
 
 	@Test
 	void nullFieldsRejectedWithoutBeanValidation() {
-		assertThatThrownBy(() -> service.record(new CashMovementForm(CashMovementType.DEPOSIT, null, bank, null,
+		assertThatThrownBy(() -> service.record(new CashMovementForm(CashMovementType.DEPOSIT, null, null, bank,
 				BigDecimal.TEN, null))).isInstanceOf(CashValidationException.class);
 		assertThatThrownBy(() -> service.record(new CashMovementForm(CashMovementType.DEPOSIT, today, null, null,
 				BigDecimal.TEN, null))).isInstanceOf(CashValidationException.class);
@@ -291,9 +339,12 @@ class CashMovementServiceTest {
 		assertThat(jdbc.queryForObject("SELECT note FROM cash_movement", String.class)).isNull();
 	}
 
+	/** account 是錢動到的帳戶：存入時是轉入帳戶，支出與互轉時是轉出帳戶；to 只有互轉用。 */
 	private static CashMovementForm form(CashMovementType type, LocalDate date, Long account, Long to, String amount,
 			String note) {
-		return new CashMovementForm(type, date, account, to, new BigDecimal(amount), note);
+		return type == CashMovementType.DEPOSIT
+				? new CashMovementForm(type, date, null, account, new BigDecimal(amount), note)
+				: new CashMovementForm(type, date, account, to, new BigDecimal(amount), note);
 	}
 
 	private int movementCount() {

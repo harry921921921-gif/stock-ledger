@@ -66,7 +66,7 @@ class CashLedgerCalculatorTest {
 		assertThat(ledger.balances().get(A)).isEqualByComparingTo("1500");
 	}
 
-	/** 補記一筆比對帳更早的領出：對帳過的餘額仍是當時輸入的實際餘額，只有那筆餘額調整改變（Review Focus #4）。 */
+	/** 補記一筆比對帳更早的支出：對帳過的餘額仍是當時輸入的實際餘額，只有那筆餘額調整改變（Review Focus #4）。 */
 	@Test
 	void backdatedMovementKeepsReconciledBalance() {
 		CashEvent reconcile = reconcile(A, "2026-10-10", "900");
@@ -172,22 +172,6 @@ class CashLedgerCalculatorTest {
 		assertThat(change.total()).isEqualByComparingTo("200");
 	}
 
-	/** 生活費：使用者每月直接輸入一筆，減少餘額，在本月淨資產變動裡單獨列一行（DR-034）。 */
-	@Test
-	void livingExpenseReducesBalanceAndIsListedSeparately() {
-		List<CashEvent> events = List.of(
-				opening(A, "2026-10-01", "100000"),
-				deposit(A, "2026-10-05", "62000"),
-				livingExpense(A, "2026-10-31", "27000"),
-				withdrawal(A, "2026-10-31", "3000"));
-
-		assertThat(balance(events, A)).isEqualByComparingTo("132000");
-		MonthlyCashChange change = CashLedgerCalculator.monthlyChange(events, YearMonth.of(2026, 10));
-		assertThat(change.livingExpenses()).isEqualByComparingTo("27000");
-		assertThat(change.withdrawals()).isEqualByComparingTo("3000");
-		assertThat(change.total()).isEqualByComparingTo("32000");
-	}
-
 	@Test
 	void monthlyChangeOnlyCountsThatMonth() {
 		List<CashEvent> events = List.of(
@@ -222,10 +206,6 @@ class CashLedgerCalculatorTest {
 
 	private CashEvent withdrawal(Long account, String date, String amount) {
 		return event(CashMovementType.WITHDRAWAL, account, null, date, amount, null);
-	}
-
-	private CashEvent livingExpense(Long account, String date, String amount) {
-		return event(CashMovementType.LIVING_EXPENSE, account, null, date, amount, null);
 	}
 
 	private CashEvent transfer(Long from, Long to, String date, String amount) {

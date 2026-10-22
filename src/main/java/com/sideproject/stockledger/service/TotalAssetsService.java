@@ -24,6 +24,7 @@ import com.sideproject.stockledger.dto.AccountCard;
 import com.sideproject.stockledger.dto.AllocationRow;
 import com.sideproject.stockledger.dto.Direction;
 import com.sideproject.stockledger.dto.MovementRow;
+import com.sideproject.stockledger.dto.MovementSearch;
 import com.sideproject.stockledger.dto.TotalAssetsView;
 import com.sideproject.stockledger.entity.CashAccount;
 import com.sideproject.stockledger.entity.CashMovement;
@@ -40,6 +41,8 @@ public class TotalAssetsService {
 	static final int RECONCILE_REMINDER_DAYS = 30;
 
 	private static final int RECENT_COUNT = 10;
+
+	private static final int MAX_SEARCH_LENGTH = 50;
 
 	private final CashAccountService accounts;
 	private final CashMovementService movements;
@@ -94,6 +97,23 @@ public class TotalAssetsService {
 		return rows(inMonth, accounts.listMine(), ledger);
 	}
 
+	/**
+	 * 全部異動頁的備註搜尋（spec 4.6-9）：所有月份裡備註包含搜尋字的異動（不分大小寫、去掉前後空白），
+	 * 含作廢的，新的在前。搜尋字是空白時沒有結果；太長時回傳錯誤訊息，不丟例外（畫面照樣顯示）。
+	 */
+	@Transactional(readOnly = true)
+	public MovementSearch search(String query) {
+		String text = query == null ? "" : query.strip();
+		if (text.length() > MAX_SEARCH_LENGTH) {
+			return new MovementSearch(text, List.of(), "搜尋字最多 50 個字");
+		}
+		if (text.isEmpty()) {
+			return new MovementSearch(text, List.of(), null);
+		}
+		CashLedger ledger = CashLedgerCalculator.compute(movements.activeEvents(), LocalDate.now(clock));
+		return new MovementSearch(text, rows(movements.searchByNote(text), accounts.listMine(), ledger), null);
+	}
+
 	/** 某個帳戶今天的系統推算餘額（輸入實際餘額時給使用者對照）。別人的帳戶 → NotFoundException。 */
 	@Transactional(readOnly = true)
 	public BigDecimal systemBalance(Long accountId) {
@@ -133,7 +153,7 @@ public class TotalAssetsService {
 		BigDecimal amount = m.getAmount();
 		Direction direction = switch (m.getType()) {
 			case DEPOSIT -> Direction.IN;
-			case WITHDRAWAL, LIVING_EXPENSE -> Direction.OUT;
+			case WITHDRAWAL -> Direction.OUT;
 			case OPENING, TRANSFER -> Direction.NEUTRAL;
 			case RECONCILE -> Direction.NEUTRAL;
 		};

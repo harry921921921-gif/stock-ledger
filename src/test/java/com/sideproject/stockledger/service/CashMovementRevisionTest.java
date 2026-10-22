@@ -327,8 +327,11 @@ class CashMovementRevisionTest {
 		return service.record(form(CashMovementType.DEPOSIT, today, bank, amount, note)).getId();
 	}
 
+	/** account 是錢動到的帳戶：存入時是轉入帳戶，支出時是轉出帳戶。 */
 	private static CashMovementForm form(CashMovementType type, LocalDate date, Long account, String amount, String note) {
-		return new CashMovementForm(type, date, account, null, new BigDecimal(amount), note);
+		return type == CashMovementType.DEPOSIT
+				? new CashMovementForm(type, date, null, account, new BigDecimal(amount), note)
+				: new CashMovementForm(type, date, account, null, new BigDecimal(amount), note);
 	}
 
 	private List<Map<String, Object>> revisions(Long id) {

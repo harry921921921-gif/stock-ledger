@@ -30,6 +30,15 @@ public interface CashMovementRepository extends Repository<CashMovement, Long> {
 	/** 目前登入者所有事件，新的在前（列表用，含作廢的）。 */
 	List<CashMovement> findByUserIdOrderByMovementDateDescIdDesc(Long userId);
 
+	/**
+	 * 備註符合 LIKE 樣式的事件（含作廢的），新的在前。pattern 由呼叫端用 ! 跳脫 %、_、!；
+	 * 不用 Spring Data 的 Containing，因為它用反斜線跳脫，搜尋「\」會找不到。
+	 * 不分大小寫靠資料表的 collation（utf8mb4_0900_ai_ci）。
+	 */
+	@Query("select m from CashMovement m where m.userId = :userId and m.note like :pattern escape '!' "
+			+ "order by m.movementDate desc, m.id desc")
+	List<CashMovement> searchNote(@Param("userId") Long userId, @Param("pattern") String pattern);
+
 	Optional<CashMovement> findByIdAndUserId(Long id, Long userId);
 
 	/**

@@ -120,7 +120,7 @@ class TotalAssetsServiceTest {
 		assertThat(view.largest().name()).isEqualTo("大帳戶");
 	}
 
-	/** 本月存入 500、領出 200、對帳調整 −100 → 200；初始現金餘額與互轉不算（spec 4.3-2）。 */
+	/** 本月存入 500、支出 200、對帳調整 −100 → 200；初始現金餘額與互轉不算（spec 4.3-2）。 */
 	@Test
 	void monthChangeFromMovements() {
 		Long a = account("A");
@@ -286,6 +286,74 @@ class TotalAssetsServiceTest {
 			.contains(lastMonth);
 	}
 
+	// ---------- 備註搜尋（spec 4.6-9） ----------
+
+	/** 搜尋所有月份，新的在前。 */
+	@Test
+	void searchAcrossMonthsNewestFirst() {
+		Long a = account("A");
+		Long older = note(a, firstOfMonth.minusDays(1), "保險");
+		Long newer = note(a, today, "年繳保險");
+		note(a, today, "薪水");
+
+		assertThat(service.search("保險").rows()).extracting(MovementRow::id).containsExactly(newer, older);
+	}
+
+	@Test
+	void searchIgnoresCaseAndTrims() {
+		Long a = account("A");
+		Long id = note(a, today, "ETF 定期定額");
+
+		assertThat(service.search("  etf ").rows()).extracting(MovementRow::id).containsExactly(id);
+	}
+
+	@Test
+	void searchIncludesVoided() {
+		Long a = account("A");
+		Long id = note(a, today, "保險");
+		movements.voidMovement(id, null);
+
+		assertThat(service.search("保險").rows()).singleElement().satisfies(row -> assertThat(row.voided()).isTrue());
+	}
+
+	/** % 和 _ 是一般文字，不是萬用字元；跳脫用的反斜線本身也能搜尋。 */
+	@Test
+	void searchTreatsWildcardsLiterally() {
+		Long a = account("A");
+		Long percent = note(a, today, "100%");
+		note(a, today, "1000");
+		Long underscore = note(a, today, "a_b");
+		note(a, today, "axb");
+
+		assertThat(service.search("%").rows()).extracting(MovementRow::id).containsExactly(percent);
+		assertThat(service.search("_").rows()).extracting(MovementRow::id).containsExactly(underscore);
+		Long backslash = note(a, today, "a\\b");
+		assertThat(service.search("\\").rows()).extracting(MovementRow::id).containsExactly(backslash);
+	}
+
+	@Test
+	void searchOnlyMine() {
+		loginAs("ta-ben");
+		note(account("班的帳戶"), today, "保險");
+		loginAs("ta-amy");
+		Long mine = note(account("A"), today, "保險");
+
+		assertThat(service.search("保險").rows()).extracting(MovementRow::id).containsExactly(mine);
+	}
+
+	@Test
+	void searchTooLong() {
+		assertThat(service.search("字".repeat(50)).error()).isNull();
+		assertThat(service.search("字".repeat(51)).error()).isEqualTo("搜尋字最多 50 個字");
+		assertThat(service.search("字".repeat(51)).rows()).isEmpty();
+	}
+
+	/** 存入一筆有備註的異動，回傳 id。 */
+	private Long note(Long account, LocalDate date, String note) {
+		return movements.record(new CashMovementForm(CashMovementType.DEPOSIT, date, null, account, BigDecimal.TEN,
+				note)).getId();
+	}
+
 	private AccountCard card(TotalAssetsView view, String name) {
 		return view.accounts().stream().filter(c -> c.name().equals(name)).findFirst().orElseThrow();
 	}
@@ -294,8 +362,11 @@ class TotalAssetsServiceTest {
 		return accounts.create(new CashAccountForm(name, CashAccountType.BANK_DEMAND, "國泰世華")).getId();
 	}
 
+	/** account 是錢動到的帳戶：存入時是轉入帳戶，支出與互轉時是轉出帳戶；to 只有互轉用。 */
 	private static CashMovementForm form(CashMovementType type, LocalDate date, Long account, Long to, String amount) {
-		return new CashMovementForm(type, date, account, to, new BigDecimal(amount), null);
+		return type == CashMovementType.DEPOSIT
+				? new CashMovementForm(type, date, null, account, new BigDecimal(amount), null)
+				: new CashMovementForm(type, date, account, to, new BigDecimal(amount), null);
 	}
 
 	private void loginAs(String username) {
