@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>資金來源 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<!-- 依設計稿「資金來源」（Funding），只做目前有資料的部分。所有數字都由 LoanService 算好，這裡只負責顯示。 -->
+<div class="app" th:with="v=${view}">
+	<aside th:replace="~{fragments/layout :: sidebar('funding')}"></aside>
+	<main class="content">
+		<div class="page-header">
+			<div>
+				<h1>資金來源</h1>
+				<p class="muted">借來的錢：剩多少本金、利率多少、這個月付多少利息。信貸每月扣款、質押每月繳息會自動記帳。</p>
+			</div>
+			<a class="btn btn-primary" th:href="@{/funding/new}">新增借款</a>
+		</div>
+
+		<p class="alert alert-info" th:if="${message}" th:text="${message}">已新增</p>
+
+		<section class="stat-grid" aria-label="關鍵數字">
+			<div class="stat-card">
+				<span class="stat-label">總負債</span>
+				<span class="stat-value" th:text="${@money.plain(v.totalDebt())}">800,000</span>
+				<span class="stat-note">所有借款今天的剩餘本金</span>
+			</div>
+			<div class="stat-card">
+				<span class="stat-label">加權平均利率</span>
+				<span class="stat-value" th:text="${v.weightedRatePercent() != null} ? |${v.weightedRatePercent()}%| : '—'">2.75%</span>
+				<span class="stat-note">依剩餘本金加權</span>
+			</div>
+			<div class="stat-card">
+				<span class="stat-label">本月利息</span>
+				<span class="stat-value" th:text="${@money.plain(v.monthInterest())}">1,821</span>
+				<span class="stat-note">應計，已計入總資產頁的本月淨資產變動</span>
+			</div>
+		</section>
+
+		<p class="muted" th:if="${#lists.isEmpty(v.loans())}">還沒有借款。</p>
+
+		<p class="muted" th:unless="${#lists.isEmpty(v.loans())}">「尚未投入」是還沒拿去買股票的借款；股票功能完成前等於剩餘本金。</p>
+
+		<section class="account-grid">
+			<div class="account-card" th:each="c : ${v.loans()}">
+				<div class="account-card-header">
+					<strong th:text="${c.name()}">土銀信貸</strong>
+					<span class="badge" th:text="${c.typeLabel()}">信貸</span>
+					<span class="badge" th:if="${c.paidOff()}">已還清</span>
+				</div>
+				<p class="muted" th:text="|${c.bank()} · ${c.originLabel()} · 原始 ${@money.plain(c.originalAmount())} 元|">土地銀行 · 既有借款 · 原始 400,000 元</p>
+				<dl class="loan-facts">
+					<dt>剩餘本金</dt><dd th:text="${@money.plain(c.remaining())}">400,000</dd>
+					<dt>年利率</dt><dd th:text="|${c.ratePercent()}%|">2.50%</dd>
+					<dt>本月利息</dt><dd th:text="${@money.plain(c.monthInterest())}">834</dd>
+					<dt>累計已付利息</dt><dd th:text="${@money.plain(c.paidInterest())}">0</dd>
+					<dt>尚未投入</dt><dd th:text="${@money.plain(c.undeployed())}" title="股票功能完成後，買股票用掉的部分會從這裡扣掉">400,000</dd>
+					<th:block th:if="${c.credit() and c.nextDue() != null}">
+						<dt>下次扣款</dt><dd th:text="|${c.nextDue()}，${@money.plain(c.nextAmount())} 元（剩 ${c.periodsLeft()} 期）|">2026-11-05，7,099 元（剩 60 期）</dd>
+					</th:block>
+					<th:block th:if="${c.pledge() and c.nextDue() != null}">
+						<dt>下次繳息</dt><dd th:text="|${c.nextDue()}，約 ${@money.plain(c.nextAmount())} 元|">2026-11-25，約 987 元</dd>
+					</th:block>
+					<dt>扣款帳戶</dt><dd th:text="${c.payAccountName()}">土銀帳戶</dd>
+				</dl>
+				<p class="card-actions">
+					<a th:href="@{/funding/{id}/edit(id=${c.id()})}">修改</a> ·
+					<a th:href="@{/funding/{id}/rate(id=${c.id()})}">新增利率</a> ·
+					<a th:href="@{/funding/{id}/repay(id=${c.id()})}" th:unless="${c.paidOff()}" th:text="${c.credit()} ? '提前還本' : '還本'">還本</a>
+					<th:block th:if="${c.pledge()}"> · <a th:href="@{/funding/{id}/redraw(id=${c.id()})}">再動撥</a></th:block> ·
+					<a th:href="@{/assets/movements(loan=${c.id()})}">看紀錄</a>
+				</p>
+				<form class="inline-form" method="post" th:action="@{/funding/{id}/void(id=${c.id()})}"
+						data-confirm="確定要作廢這筆借款嗎？它的撥款、還本、利息紀錄都會一起作廢，但會留下紀錄。">
+					<input type="text" name="reason" maxlength="200" placeholder="作廢原因（可不填）"
+							th:attr="aria-label=|作廢 ${c.name()} 的原因|">
+					<button type="submit" class="btn btn-secondary" data-busy-text="作廢中…">作廢借款</button>
+				</form>
+			</div>
+		</section>
+	</main>
+</div>
+</body>
+</html>

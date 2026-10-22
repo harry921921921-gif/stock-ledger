@@ -50,6 +50,12 @@ public interface CashMovementRepository extends Repository<CashMovement, Long> {
 	/** 這個固定項目產生的所有異動（含作廢的），新的在前；全部異動頁依項目篩選用。 */
 	List<CashMovement> findByUserIdAndRecurringItemIdOrderByMovementDateDescIdDesc(Long userId, Long recurringItemId);
 
+	/** 某筆借款的所有異動（含作廢的），舊的在前；推算剩餘本金、攤還、利息用。 */
+	List<CashMovement> findByUserIdAndLoanIdOrderByMovementDateAscIdAsc(Long userId, Long loanId);
+
+	/** 某筆借款全部異動，新的在前（全部異動頁依借款篩選）。 */
+	List<CashMovement> findByUserIdAndLoanIdOrderByMovementDateDescIdDesc(Long userId, Long loanId);
+
 	/**
 	 * 修改或作廢前讀取並鎖住這一列（SELECT … FOR UPDATE）：兩個請求同時改同一筆時，第二個會等第一個完成，
 	 * 再讀到最新的值，修改紀錄的「舊值」才接得起來，也不會作廢兩次。

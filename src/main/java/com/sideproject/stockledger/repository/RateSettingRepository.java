@@ -23,4 +23,7 @@ public interface RateSettingRepository extends Repository<RateSetting, Long> {
 	@Query("select r from RateSetting r where r.userId is null or r.userId = :userId")
 	List<RateSetting> findAllVisible(@Param("userId") Long userId);
 
+	/** 某一筆借款的利率版本（只有擁有者的），生效日早的在前。 */
+	List<RateSetting> findByUserIdAndLoanIdOrderByEffectiveDateAscIdAsc(Long userId, Long loanId);
+
 }

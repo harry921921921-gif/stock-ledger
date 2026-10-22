@@ -185,6 +185,40 @@ class CashLedgerCalculatorTest {
 		assertThat(change.total()).isEqualByComparingTo("200");
 	}
 
+	/** 借款撥款進帳戶、還本與利息從帳戶扣（設計文件 6）。 */
+	@Test
+	void loanMovementsChangeBalance() {
+		List<CashEvent> events = List.of(
+				opening(A, "2026-10-01", "1000"),
+				event(CashMovementType.LOAN_DISBURSEMENT, A, null, "2026-10-02", "400000", null),
+				event(CashMovementType.LOAN_PRINCIPAL, A, null, "2026-10-05", "6265", null),
+				event(CashMovementType.LOAN_INTEREST, A, null, "2026-10-05", "834", null));
+
+		assertThat(balance(events, A)).isEqualByComparingTo("393901");
+	}
+
+	/**
+	 * 撥款與還本只改變資產形式，不算淨資產變動；「借款利息」異動本身也不算（利息另外依應計制加進來，避免算兩次）。
+	 */
+	@Test
+	void loanMovementsNotCountedInMonthlyChange() {
+		List<CashEvent> events = List.of(
+				opening(A, "2026-10-01", "1000"),
+				event(CashMovementType.LOAN_DISBURSEMENT, A, null, "2026-10-02", "400000", null),
+				event(CashMovementType.LOAN_PRINCIPAL, A, null, "2026-10-05", "6265", null),
+				event(CashMovementType.LOAN_INTEREST, A, null, "2026-10-05", "834", null));
+
+		MonthlyCashChange change = CashLedgerCalculator.monthlyChange(events, YearMonth.of(2026, 10));
+		assertThat(change.deposits()).isEqualByComparingTo("0");
+		assertThat(change.withdrawals()).isEqualByComparingTo("0");
+		assertThat(change.interest()).isEqualByComparingTo("0");
+		assertThat(change.total()).isEqualByComparingTo("0");
+
+		MonthlyCashChange withInterest = change.withInterest(new BigDecimal("1821"));
+		assertThat(withInterest.interest()).isEqualByComparingTo("1821");
+		assertThat(withInterest.total()).isEqualByComparingTo("-1821");
+	}
+
 	@Test
 	void monthlyChangeOfEmptyMonthIsZero() {
 		MonthlyCashChange change = CashLedgerCalculator.monthlyChange(List.of(), YearMonth.of(2026, 10));

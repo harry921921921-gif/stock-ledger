@@ -69,6 +69,10 @@ public class RateSettingService {
 	/** 某一天適用的費率（比率類回傳比率，例如 0.001425；金額類回傳元）。沒有任何版本時回傳 empty（spec 4.5-4「未設定」）。 */
 	@Transactional(readOnly = true)
 	public Optional<BigDecimal> findEffective(RateKind kind, LocalDate on) {
+		if (kind.scope() == RateKind.Scope.LOAN) {
+			// 借款利率綁定某一筆借款，要從 LoanService 依借款查；這裡查會把不同借款的版本混在一起
+			throw new IllegalArgumentException("借款利率請用 LoanService 查詢");
+		}
 		List<RateCandidate> candidates = applicable(kind, rates.findVisible(kind, currentUser.id())).stream()
 			.map(RateSetting::toCandidate)
 			.toList();
@@ -82,6 +86,7 @@ public class RateSettingService {
 		Map<RateKind, List<RateSetting>> byKind = rates.findAllVisible(currentUser.id()).stream()
 			.collect(Collectors.groupingBy(RateSetting::getKind));
 		return Arrays.stream(RateKind.values())
+			.filter(kind -> kind.scope() != RateKind.Scope.LOAN)
 			.map(kind -> rowFor(kind, applicable(kind, byKind.getOrDefault(kind, List.of())), today))
 			.toList();
 	}
@@ -100,7 +105,8 @@ public class RateSettingService {
 		}
 		RateKind kind = form.kind();
 		if (kind.scope() != RateKind.Scope.PERSONAL) {
-			throw new RateValidationException("法定費率不能修改");
+			throw new RateValidationException(
+					kind.scope() == RateKind.Scope.LOAN ? "借款利率請在資金來源頁設定" : "法定費率不能修改");
 		}
 		if (form.effectiveDate().isBefore(MIN_DATE) || form.effectiveDate().isAfter(MAX_DATE)) {
 			throw new RateValidationException("生效日期要在 2000-01-01 到 9999-12-31 之間");

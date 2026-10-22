@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.sideproject.stockledger.calculator.CashEvent;
 import com.sideproject.stockledger.dto.CashMovementForm;
+import com.sideproject.stockledger.dto.LoanMovementForm;
 import com.sideproject.stockledger.dto.OpeningForm;
 import com.sideproject.stockledger.dto.ReconcileForm;
 import com.sideproject.stockledger.entity.CashAccount;
@@ -29,6 +30,7 @@ import com.sideproject.stockledger.entity.CashMovementType;
 import com.sideproject.stockledger.repository.CashAccountRepository;
 import com.sideproject.stockledger.repository.CashMovementRepository;
 import com.sideproject.stockledger.repository.CashMovementRevisionRepository;
+import com.sideproject.stockledger.repository.LoanRepository;
 import com.sideproject.stockledger.security.CurrentUser;
 
 /**
@@ -58,14 +60,19 @@ public class CashMovementService {
 	private final CashMovementRepository movements;
 	private final CashMovementRevisionRepository revisions;
 	private final CashAccountRepository accounts;
+	private final LoanRepository loans;
+	private final LoanFactsReader loanFacts;
 	private final CurrentUser currentUser;
 	private final Clock clock;
 
 	public CashMovementService(CashMovementRepository movements, CashMovementRevisionRepository revisions,
-			CashAccountRepository accounts, CurrentUser currentUser, Clock clock) {
+			CashAccountRepository accounts, LoanRepository loans, LoanFactsReader loanFacts, CurrentUser currentUser,
+			Clock clock) {
 		this.movements = movements;
 		this.revisions = revisions;
 		this.accounts = accounts;
+		this.loans = loans;
+		this.loanFacts = loanFacts;
 		this.currentUser = currentUser;
 		this.clock = clock;
 	}
@@ -166,6 +173,63 @@ public class CashMovementService {
 		return flush(m);
 	}
 
+	/**
+	 * 修改借款的撥款、還本或利息：只能改日期與金額（例如對上銀行明細），寫修改紀錄。
+	 * 自動記的那一期日期要留在期別的月份內；剩餘本金、之後的攤還與利息都會依新的金額重新推算。
+	 */
+	@Transactional
+	public CashMovement editLoanMovement(Long id, LoanMovementForm form, String reason) {
+		Long userId = currentUser.id();
+		CashMovement m = findMineForEdit(id);
+		if (!m.getType().isLoan()) {
+			throw new CashValidationException("這筆不是借款的紀錄");
+		}
+		checkPositiveWholeAmount(form.amount());
+		checkDate(form.date());
+		checkNotBeforeOpening(userId, m.getAccountId(), form.date());
+		// 自動記的那一期日期要留在期別的月份；質押還清那筆利息記在還清當天，可能是期別的前一個月
+		if (m.getPeriod() != null && !YearMonth.from(form.date()).equals(m.getPeriod())
+				&& !YearMonth.from(form.date()).equals(m.getPeriod().minusMonths(1))) {
+			throw new CashValidationException("這筆是 " + m.getPeriod() + " 那一期的借款紀錄，日期要在那個月或前一個月內");
+		}
+		String cleanReason = cleanReason(reason);
+		Map<String, String> before = snapshot(m);
+		m.change(form.date(), m.getAccountId(), null, form.amount(), m.getNote());
+		writeEditRevisions(m, before, cleanReason);
+		flush(m);
+		checkLoanPrincipalNotNegative(m);
+		return m;
+	}
+
+	/**
+	 * 作廢一筆借款時，把它所有沒作廢的撥款、還本、利息一起作廢（每筆寫一列修改紀錄）。由 LoanService.voidLoan 呼叫，
+	 * 借款已經鎖住、確認是登入者的；整筆借款都作廢，所以不檢查剩餘本金。
+	 */
+	@Transactional
+	public int voidLoanMovements(Long loanId, String reason) {
+		String cleanReason = cleanReason(reason);
+		LocalDateTime now = LocalDateTime.now(clock);
+		int count = 0;
+		for (CashMovement m : movements.findByUserIdAndLoanIdOrderByMovementDateAscIdAsc(currentUser.id(), loanId)) {
+			if (m.isVoided()) {
+				continue;
+			}
+			revisions.save(CashMovementRevision.of(m.getId(), currentUser.id(), now, CashMovementRevision.VOID, "voided",
+					"false", "true", cleanReason));
+			m.markVoided();
+			count++;
+		}
+		movements.flush();
+		return count;
+	}
+
+	/** 修改借款紀錄的表單預設值（金額轉成整數元）。 */
+	@Transactional(readOnly = true)
+	public LoanMovementForm loanMovementForm(Long id) {
+		CashMovement m = find(id);
+		return new LoanMovementForm(m.getMovementDate(), wholeDollars(m.getAmount()));
+	}
+
 	/** 作廢：不硬刪除，寫一列修改紀錄（field = voided），之後不計入任何金額。 */
 	@Transactional
 	public CashMovement voidMovement(Long id, String reason) {
@@ -174,7 +238,9 @@ public class CashMovementService {
 		revisions.save(CashMovementRevision.of(m.getId(), currentUser.id(), LocalDateTime.now(clock),
 				CashMovementRevision.VOID, "voided", "false", "true", cleanReason));
 		m.markVoided();
-		return flush(m);
+		flush(m);
+		checkLoanPrincipalNotNegative(m);
+		return m;
 	}
 
 	// ---------- 查詢 ----------
@@ -206,6 +272,12 @@ public class CashMovementService {
 	public List<CashMovement> searchByNote(String text) {
 		String escaped = text.replace("!", "!!").replace("%", "!%").replace("_", "!_");
 		return movements.searchNote(currentUser.id(), "%" + escaped + "%");
+	}
+
+	/** 目前登入者某筆借款的異動（含作廢的），新的在前。 */
+	@Transactional(readOnly = true)
+	public List<CashMovement> listByLoan(Long loanId) {
+		return movements.findByUserIdAndLoanIdOrderByMovementDateDescIdDesc(currentUser.id(), loanId);
 	}
 
 	/** 目前登入者某個固定項目產生的異動（含作廢的），新的在前。 */
@@ -456,6 +528,22 @@ public class CashMovementService {
 
 	private static String money(BigDecimal value) {
 		return value == null ? null : value.stripTrailingZeros().toPlainString();
+	}
+
+	/**
+	 * 改了或作廢了借款的撥款、還本之後，剩餘本金在任何一天都不能變成負數（例如作廢撥款、把還本改大）。
+	 * 在同一個交易裡、寫進資料庫之後重新推算；丟出例外時整筆退回。
+	 */
+	private void checkLoanPrincipalNotNegative(CashMovement m) {
+		if (m.getLoanId() == null || m.getType() == CashMovementType.LOAN_INTEREST) {
+			return;
+		}
+		loans.findByIdAndUserId(m.getLoanId(), currentUser.id())
+			.map(loanFacts::read)
+			.filter(f -> f.minRemaining().signum() < 0)
+			.ifPresent(f -> {
+				throw new CashValidationException(LoanService.NEGATIVE_PRINCIPAL);
+			});
 	}
 
 	// ---------- 存檔 ----------

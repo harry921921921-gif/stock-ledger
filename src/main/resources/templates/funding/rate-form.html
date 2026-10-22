@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>新增利率 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('funding')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/funding}">資金來源</a></p>
+		<h1 th:text="|新增利率：${loan.name}|">新增利率：土銀信貸</h1>
+		<p class="muted">銀行調整利率時新增一個版本。信貸從生效日之後的第一期起重算月付金；質押從生效日起按日計息。</p>
+
+		<form class="form-card" method="post" th:object="${form}" th:action="@{/funding/{id}/rate(id=${loan.id})}">
+			<p class="alert alert-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}">錯誤訊息</p>
+			<p class="alert alert-error" th:if="${#fields.hasErrors('*')}" th:each="e : ${#fields.errors('*')}" th:text="${e}">錯誤訊息</p>
+
+			<label for="effectiveDate">生效日</label>
+			<input id="effectiveDate" type="date" th:field="*{effectiveDate}" required>
+
+			<label for="annualRatePercent">年利率（%）</label>
+			<input id="annualRatePercent" type="text" inputmode="decimal" th:field="*{annualRatePercent}" placeholder="例如 2.75" required>
+
+			<div class="form-actions">
+				<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">儲存</button>
+				<a class="btn btn-link" th:href="@{/funding}">取消</a>
+			</div>
+		</form>
+	</main>
+</div>
+</body>
+</html>

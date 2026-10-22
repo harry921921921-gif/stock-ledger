@@ -187,3 +187,10 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 /* 窄畫面時表格左右捲動，不要把名稱、日期擠成好幾行 */
 .table-scroll .table { min-width: 720px; }
 .table-scroll .table th, .table-scroll .table td { white-space: nowrap; }
+
+/* ---------- 資金來源頁 ---------- */
+.account-card-header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.loan-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 12px 0; }
+.loan-facts dt { color: var(--muted); }
+.loan-facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.card-actions { margin: 8px 0 0; }

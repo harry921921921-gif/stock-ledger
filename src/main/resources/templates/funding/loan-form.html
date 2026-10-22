@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title th:text="${loanId == null} ? '新增借款 · 台股資產帳本' : '修改借款 · 台股資產帳本'">新增借款 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('funding')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/funding}">資金來源</a></p>
+		<h1 th:text="${loanId == null} ? '新增借款' : '修改借款'">新增借款</h1>
+		<p class="muted" th:if="${loanId == null}">開始用系統之前就借的，選「既有借款」，填今天（或起算日）還剩多少本金；新借的選「新撥款」，系統會記一筆撥款到撥入帳戶。</p>
+		<p class="muted" th:if="${loanId != null}">類型與方式不能改；起算日、起算本金、剩餘期數、第一期只有還沒開始記帳的既有借款可以改。利率請用「新增利率」。</p>
+
+		<p class="muted" th:if="${#lists.isEmpty(myAccounts)}">還沒有現金帳戶，請先<a th:href="@{/settings/accounts/new}">新增帳戶</a>。</p>
+
+		<form class="form-card" method="post" th:object="${form}" th:unless="${#lists.isEmpty(myAccounts)}"
+				th:action="${loanId == null} ? @{/funding/new} : @{/funding/{id}/edit(id=${loanId})}">
+			<p class="alert alert-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}">錯誤訊息</p>
+			<p class="alert alert-error" th:if="${#fields.hasErrors('*')}" th:each="e : ${#fields.errors('*')}" th:text="${e}">錯誤訊息</p>
+			<input type="hidden" name="formToken" th:if="${loanId == null}" th:value="${formToken}">
+
+			<label for="name">名稱</label>
+			<input id="name" type="text" th:field="*{name}" maxlength="50" placeholder="例如：土銀信貸" required>
+
+			<label for="bank">銀行</label>
+			<input id="bank" type="text" th:field="*{bank}" maxlength="50" placeholder="例如：土地銀行" required>
+
+			<th:block th:if="${loanId == null}">
+				<label for="type">類型</label>
+				<select id="type" th:field="*{type}">
+					<option th:each="t : ${loanTypes}" th:value="${t}" th:text="${t.label()}">信貸</option>
+				</select>
+
+				<label for="origin">方式</label>
+				<select id="origin" th:field="*{origin}">
+					<option th:each="o : ${origins}" th:value="${o}" th:text="${o.label()}">既有借款</option>
+				</select>
+			</th:block>
+			<th:block th:if="${loanId != null}">
+				<p>
+					<span class="label-text">類型</span> <span th:text="*{type} != null ? *{type.label()} : '—'">信貸</span>
+					<span class="label-text">方式</span> <span th:text="*{origin} != null ? *{origin.label()} : '—'">既有借款</span>
+				</p>
+				<input type="hidden" th:field="*{type}">
+				<input type="hidden" th:field="*{origin}">
+			</th:block>
+
+			<label for="originalAmount">原始借款金額</label>
+			<input id="originalAmount" type="text" inputmode="numeric" th:field="*{originalAmount}" placeholder="整數元；新撥款可不填">
+
+			<label for="startDate">起算日</label>
+			<input id="startDate" type="date" th:field="*{startDate}" required>
+
+			<label for="startPrincipal">起算本金</label>
+			<input id="startPrincipal" type="text" inputmode="numeric" th:field="*{startPrincipal}" placeholder="新撥款填撥款金額；既有借款填起算日當時的剩餘本金" required>
+
+			<th:block th:if="${loanId == null}">
+				<label for="annualRatePercent">年利率（%）</label>
+				<input id="annualRatePercent" type="text" inputmode="decimal" th:field="*{annualRatePercent}" placeholder="例如 2.5" required>
+			</th:block>
+
+			<div data-show-source="origin" data-show-for="NEW">
+				<label for="disburseAccountId">撥入帳戶</label>
+				<select id="disburseAccountId" th:field="*{disburseAccountId}">
+					<option value="">請選擇</option>
+					<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">土銀帳戶</option>
+				</select>
+			</div>
+
+			<label for="payAccountId">扣款帳戶</label>
+			<select id="payAccountId" th:field="*{payAccountId}">
+				<option value="">請選擇</option>
+				<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">土銀帳戶</option>
+			</select>
+
+			<label for="payDay">每月扣款日或繳息日</label>
+			<input id="payDay" type="number" min="1" max="31" th:field="*{payDay}" placeholder="幾號（1～31）" required>
+
+			<div data-show-source="type" data-show-for="CREDIT">
+				<label for="remainingPeriods">剩餘期數</label>
+				<input id="remainingPeriods" type="number" min="1" max="600" th:field="*{remainingPeriods}" placeholder="新撥款就是總期數">
+
+				<label for="firstPeriod">第一期扣款月份</label>
+				<input id="firstPeriod" type="month" th:field="*{firstPeriod}">
+				<p class="muted">本息平均攤還：月付金四捨五入到元，每期利息無條件進位到元。</p>
+			</div>
+
+			<div data-show-source="type" data-show-for="PLEDGE">
+				<label for="dueDate">到期日</label>
+				<input id="dueDate" type="date" th:field="*{dueDate}">
+				<p class="muted">可不填。質押依每天的借款餘額計息，每月繳息日自動記一筆利息。</p>
+			</div>
+
+			<div class="form-actions">
+				<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">儲存</button>
+				<a class="btn btn-link" th:href="@{/funding}">取消</a>
+			</div>
+		</form>
+	</main>
+</div>
+</body>
+</html>

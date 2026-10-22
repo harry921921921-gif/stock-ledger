@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title th:text="${redraw} ? '再動撥 · 台股資產帳本' : '還本 · 台股資產帳本'">還本 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('funding')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/funding}">資金來源</a></p>
+		<h1 th:text="${redraw} ? |再動撥：${loan.name}| : |還本：${loan.name}|">還本：玉山質押</h1>
+		<p class="muted" th:if="${redraw}">再借一筆：記一筆借款撥款到選的帳戶，之後依新的餘額計息。</p>
+		<p class="muted" th:unless="${redraw}">信貸是提前還本：之後的月付金重算、期數不變。質押還清時，系統當天會記最後一段利息。</p>
+
+		<form class="form-card" method="post" th:object="${form}"
+				th:action="${redraw} ? @{/funding/{id}/redraw(id=${loan.id})} : @{/funding/{id}/repay(id=${loan.id})}">
+			<p class="alert alert-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}">錯誤訊息</p>
+			<p class="alert alert-error" th:if="${#fields.hasErrors('*')}" th:each="e : ${#fields.errors('*')}" th:text="${e}">錯誤訊息</p>
+			<input type="hidden" name="formToken" th:value="${formToken}">
+
+			<label for="date">日期</label>
+			<input id="date" type="date" th:field="*{date}" required>
+
+			<label for="amount">金額</label>
+			<input id="amount" type="text" inputmode="numeric" th:field="*{amount}" placeholder="整數元" required>
+
+			<label for="accountId" th:text="${redraw} ? '撥入帳戶' : '扣款帳戶'">扣款帳戶</label>
+			<select id="accountId" th:field="*{accountId}">
+				<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">土銀帳戶</option>
+			</select>
+
+			<div class="form-actions">
+				<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">儲存</button>
+				<a class="btn btn-link" th:href="@{/funding}">取消</a>
+			</div>
+		</form>
+	</main>
+</div>
+</body>
+</html>

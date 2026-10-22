@@ -10,7 +10,7 @@ import java.util.List;
  * <li>unit：RATIO 是比率（0.001425），畫面顯示成百分比；AMOUNT 是金額，畫面顯示成「元」。</li>
  * </ul>
  * 證交稅依商品拆成四種，因為債券 ETF 停徵與當沖減半各有自己的期限。
- * 融資利率、維持率門檻要綁定某一筆借款，階段 3 再加。
+ * 借款年利率綁定某一筆借款（scope LOAN）；融資利率、維持率門檻在股票階段再加。
  */
 public enum RateKind {
 
@@ -23,10 +23,12 @@ public enum RateKind {
 	NHI_SUPPLEMENT_THRESHOLD("二代健保單次扣繳門檻", Scope.LEGAL, Unit.AMOUNT),
 	BROKERAGE_DISCOUNT("手續費折扣", Scope.PERSONAL, Unit.RATIO),
 	MIN_FEE_BOARD_LOT("整股最低手續費", Scope.PERSONAL, Unit.AMOUNT),
-	MIN_FEE_ODD_LOT("零股最低手續費", Scope.PERSONAL, Unit.AMOUNT);
+	MIN_FEE_ODD_LOT("零股最低手續費", Scope.PERSONAL, Unit.AMOUNT),
+	LOAN_ANNUAL_RATE("借款年利率", Scope.LOAN, Unit.RATIO);
 
+	/** LOAN：綁定某一筆借款的費率（V9 的 loan_id），在資金來源頁設定，不出現在設定頁的費率表。 */
 	public enum Scope {
-		LEGAL, PERSONAL
+		LEGAL, PERSONAL, LOAN
 	}
 
 	public enum Unit {

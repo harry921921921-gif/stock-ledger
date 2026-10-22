@@ -33,11 +33,11 @@
 			<p class="muted" th:if="${search.error() == null and #lists.isEmpty(rows)}">沒有符合的異動。</p>
 		</th:block>
 
-		<!-- 從固定收支頁的「看紀錄」來：只列這個項目產生的異動（含作廢的） -->
+		<!-- 從固定收支頁或資金來源頁的「看紀錄」來：只列這個項目或借款產生的異動（含作廢的） -->
 		<th:block th:if="${byItem != null}">
 			<p><strong th:text="|「${byItem.itemName()}」的紀錄|">「孝親費」的紀錄</strong>（所有月份）·
-				<a th:href="@{/recurring}">回固定收支</a> · <a th:href="@{/assets/movements}">看全部異動</a></p>
-			<p class="muted" th:if="${#lists.isEmpty(rows)}">這個項目還沒有產生任何異動。</p>
+				<a th:href="@{${byItem.backUrl()}}" th:text="${byItem.backLabel()}">回固定收支</a> · <a th:href="@{/assets/movements}">看全部異動</a></p>
+			<p class="muted" th:if="${#lists.isEmpty(rows)}">還沒有任何紀錄。</p>
 		</th:block>
 
 		<th:block th:if="${search == null and byItem == null}">

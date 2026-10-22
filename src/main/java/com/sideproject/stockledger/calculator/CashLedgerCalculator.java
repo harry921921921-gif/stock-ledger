@@ -41,8 +41,8 @@ public final class CashLedgerCalculator {
 			.sorted(ORDER)
 			.forEach(e -> {
 				switch (e.type()) {
-					case OPENING, DEPOSIT -> add(balances, e.accountId(), e.amount());
-					case WITHDRAWAL -> add(balances, e.accountId(), e.amount().negate());
+					case OPENING, DEPOSIT, LOAN_DISBURSEMENT -> add(balances, e.accountId(), e.amount());
+					case WITHDRAWAL, LOAN_PRINCIPAL, LOAN_INTEREST -> add(balances, e.accountId(), e.amount().negate());
 					case TRANSFER -> {
 						add(balances, e.accountId(), e.amount().negate());
 						add(balances, e.toAccountId(), e.amount());
@@ -59,7 +59,7 @@ public final class CashLedgerCalculator {
 		return new CashLedger(Map.copyOf(balances), Map.copyOf(adjustments), Map.copyOf(lastReconciliation));
 	}
 
-	/** 本月存入、支出與餘額調整；初始現金餘額（起點）與帳戶互轉（左手換右手）不算（spec 4.3-2）。 */
+	/** 本月存入、支出與餘額調整；初始現金餘額、帳戶互轉、借款撥款與還本不算（spec 4.3-2）。利息是 0，由呼叫端用 withInterest 加進來。 */
 	public static MonthlyCashChange monthlyChange(List<CashEvent> events, YearMonth month) {
 		Objects.requireNonNull(month, "month");
 		Map<Long, BigDecimal> adjustments = compute(events, month.atEndOfMonth()).adjustments();
@@ -74,12 +74,16 @@ public final class CashLedgerCalculator {
 				case DEPOSIT -> deposits = deposits.add(e.amount());
 				case WITHDRAWAL -> withdrawals = withdrawals.add(e.amount());
 				case RECONCILE -> adjusted = adjusted.add(adjustments.get(e.id()));
-				case OPENING, TRANSFER -> {
-					// 不算變動
+				case OPENING, TRANSFER, LOAN_DISBURSEMENT, LOAN_PRINCIPAL -> {
+					// 不算變動：起點、左手換右手、借錢與還本金只改變資產形式（spec 4.3-2）
+				}
+				case LOAN_INTEREST -> {
+					// 不在這裡算：利息依應計制由 LoanAccrualCalculator 算好，用 withInterest 加進來，避免算兩次
 				}
 			}
 		}
-		return new MonthlyCashChange(deposits, withdrawals, adjusted, deposits.subtract(withdrawals).add(adjusted));
+		return new MonthlyCashChange(deposits, withdrawals, BigDecimal.ZERO, adjusted,
+				deposits.subtract(withdrawals).add(adjusted));
 	}
 
 	private static void add(Map<Long, BigDecimal> balances, Long accountId, BigDecimal delta) {

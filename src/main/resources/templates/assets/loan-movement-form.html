@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>修改借款紀錄 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('assets')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/assets}">總資產</a> / <a th:href="@{/assets/movements}">全部異動</a></p>
+		<h1>修改借款紀錄</h1>
+		<p class="muted">只能改日期與金額，例如對上銀行的扣款明細。剩餘本金、之後的月付金與利息會依新的金額重新計算。</p>
+
+		<form class="form-card" method="post" th:object="${form}"
+				th:action="@{/assets/movements/{id}/edit-loan(id=${movementId})}">
+			<p class="alert alert-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}">錯誤訊息</p>
+			<p class="alert alert-error" th:if="${#fields.hasErrors('*')}" th:each="e : ${#fields.errors('*')}" th:text="${e}">錯誤訊息</p>
+
+			<p><span class="label-text">類型</span> <span th:text="${movementType.label()}">借款利息</span></p>
+
+			<label for="date">日期</label>
+			<input id="date" type="date" th:field="*{date}" required>
+
+			<label for="amount">金額</label>
+			<input id="amount" type="text" inputmode="numeric" th:field="*{amount}" placeholder="整數元" required>
+
+			<label for="reason">修改原因</label>
+			<input id="reason" name="reason" type="text" maxlength="200" th:value="${reason}"
+					placeholder="可不填，會記在修改紀錄裡">
+
+			<div class="form-actions">
+				<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">儲存</button>
+				<a class="btn btn-link" th:href="@{/assets/movements}">取消</a>
+			</div>
+		</form>
+	</main>
+</div>
+</body>
+</html>

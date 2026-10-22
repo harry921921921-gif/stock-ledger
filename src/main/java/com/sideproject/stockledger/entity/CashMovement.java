@@ -66,12 +66,30 @@ public class CashMovement {
 	@Column(name = "recurring_item_id", updatable = false)
 	private Long recurringItemId;
 
-	/** 屬於哪一期：該期所在月份的 1 號；和 recurringItemId 同時有或同時沒有。 */
+	/** 屬於哪一期：該期所在月份的 1 號。固定收支一定有；借款自動記的還本與利息也有（V9）。 */
 	@Column(name = "period", updatable = false)
 	private LocalDate period;
 
+	/** 借款撥款、還本、利息屬於哪一筆借款；其他類型為 null（V9）。 */
+	@Column(name = "loan_id", updatable = false)
+	private Long loanId;
+
 	protected CashMovement() {
 		// JPA 需要
+	}
+
+	/**
+	 * 借款的撥款、還本或利息。period 是自動記帳的期別（使用者自己記的還本、動撥為 null）；備註是借款名稱。
+	 */
+	public static CashMovement ofLoan(Loan loan, CashMovementType type, LocalDate date, Long accountId,
+			BigDecimal amount, YearMonth period, LocalDateTime now) {
+		if (!type.isLoan()) {
+			throw new IllegalArgumentException("只有借款撥款、還本、利息可以屬於借款");
+		}
+		CashMovement m = ofAmount(loan.getUserId(), type, date, accountId, null, amount, loan.getName(), now);
+		m.loanId = loan.getId();
+		m.period = period == null ? null : period.atDay(1);
+		return m;
 	}
 
 	/**
@@ -213,6 +231,10 @@ public class CashMovement {
 
 	public YearMonth getPeriod() {
 		return period == null ? null : YearMonth.from(period);
+	}
+
+	public Long getLoanId() {
+		return loanId;
 	}
 
 }

@@ -30,6 +30,7 @@ import com.sideproject.stockledger.dto.TotalAssetsView;
 import com.sideproject.stockledger.entity.CashAccount;
 import com.sideproject.stockledger.entity.CashMovement;
 import com.sideproject.stockledger.entity.CashMovementType;
+import com.sideproject.stockledger.entity.Loan;
 import com.sideproject.stockledger.entity.RecurringItem;
 
 /**
@@ -49,11 +50,13 @@ public class TotalAssetsService {
 	private final CashAccountService accounts;
 	private final CashMovementService movements;
 	private final RecurringItemService recurringItems;
+	private final LoanService loans;
 	private final MoneyFormatter money;
 	private final Clock clock;
 
 	public TotalAssetsService(CashAccountService accounts, CashMovementService movements,
-			RecurringItemService recurringItems, MoneyFormatter money, Clock clock) {
+			RecurringItemService recurringItems, LoanService loans, MoneyFormatter money, Clock clock) {
+		this.loans = loans;
 		this.accounts = accounts;
 		this.movements = movements;
 		this.recurringItems = recurringItems;
@@ -81,7 +84,8 @@ public class TotalAssetsService {
 				: allocation.get(0);
 
 		List<AccountCard> cards = myAccounts.stream().map(a -> card(a, ledger, events, today)).toList();
-		MonthlyCashChange monthChange = CashLedgerCalculator.monthlyChange(events, YearMonth.from(today));
+		MonthlyCashChange monthChange = CashLedgerCalculator.monthlyChange(events, YearMonth.from(today))
+			.withInterest(loans.accruedInterest(YearMonth.from(today)));
 
 		List<MovementRow> recent = rows(movements.listAll().stream().filter(m -> !m.isVoided()).limit(RECENT_COUNT)
 			.toList(), myAccounts, ledger);
@@ -124,7 +128,16 @@ public class TotalAssetsService {
 		RecurringItem item = recurringItems.find(itemId);
 		CashLedger ledger = CashLedgerCalculator.compute(movements.activeEvents(), LocalDate.now(clock));
 		return new ItemMovements(item.getId(), item.getName(),
-				rows(movements.listByRecurringItem(item.getId()), accounts.listMine(), ledger));
+				rows(movements.listByRecurringItem(item.getId()), accounts.listMine(), ledger), "/recurring", "回固定收支");
+	}
+
+	/** 全部異動頁依借款篩選：這筆借款的撥款、還本、利息（含作廢的），新的在前。別人的借款 → NotFoundException。 */
+	@Transactional(readOnly = true)
+	public ItemMovements byLoan(Long loanId) {
+		Loan loan = loans.find(loanId);
+		CashLedger ledger = CashLedgerCalculator.compute(movements.activeEvents(), LocalDate.now(clock));
+		return new ItemMovements(loan.getId(), loan.getName(),
+				rows(movements.listByLoan(loan.getId()), accounts.listMine(), ledger), "/funding", "回資金來源");
 	}
 
 	/** 某個帳戶今天的系統推算餘額（輸入實際餘額時給使用者對照）。別人的帳戶 → NotFoundException。 */
@@ -165,8 +178,8 @@ public class TotalAssetsService {
 		String description = m.getType().label() + (m.getNote() == null ? "" : " · " + m.getNote());
 		BigDecimal amount = m.getAmount();
 		Direction direction = switch (m.getType()) {
-			case DEPOSIT -> Direction.IN;
-			case WITHDRAWAL -> Direction.OUT;
+			case DEPOSIT, LOAN_DISBURSEMENT -> Direction.IN;
+			case WITHDRAWAL, LOAN_PRINCIPAL, LOAN_INTEREST -> Direction.OUT;
 			case OPENING, TRANSFER -> Direction.NEUTRAL;
 			case RECONCILE -> Direction.NEUTRAL;
 		};

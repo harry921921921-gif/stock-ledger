@@ -25,6 +25,7 @@ import com.sideproject.stockledger.TestcontainersConfig;
 import com.sideproject.stockledger.dto.AccountCard;
 import com.sideproject.stockledger.dto.CashAccountForm;
 import com.sideproject.stockledger.dto.CashMovementForm;
+import com.sideproject.stockledger.dto.LoanForm;
 import com.sideproject.stockledger.dto.Direction;
 import com.sideproject.stockledger.dto.MovementRow;
 import com.sideproject.stockledger.dto.OpeningForm;
@@ -33,6 +34,8 @@ import com.sideproject.stockledger.dto.TotalAssetsView;
 import com.sideproject.stockledger.entity.AppUser;
 import com.sideproject.stockledger.entity.CashAccountType;
 import com.sideproject.stockledger.entity.CashMovementType;
+import com.sideproject.stockledger.entity.LoanOrigin;
+import com.sideproject.stockledger.entity.LoanType;
 import com.sideproject.stockledger.entity.Role;
 import com.sideproject.stockledger.repository.AppUserRepository;
 import com.sideproject.stockledger.security.AppUserDetailsService;
@@ -48,6 +51,9 @@ class TotalAssetsServiceTest {
 
 	@Autowired
 	private CashMovementService movements;
+
+	@Autowired
+	private LoanService loans;
 
 	@Autowired
 	private CashAccountService accounts;
@@ -75,6 +81,8 @@ class TotalAssetsServiceTest {
 	void setUp() {
 		jdbc.update("DELETE FROM cash_movement_revision");
 		jdbc.update("DELETE FROM cash_movement");
+		jdbc.update("DELETE FROM rate_setting WHERE loan_id IS NOT NULL");
+		jdbc.update("DELETE FROM loan");
 		jdbc.update("DELETE FROM recurring_item");
 		jdbc.update("DELETE FROM cash_account");
 		createIfMissing("ta-amy");
@@ -140,6 +148,19 @@ class TotalAssetsServiceTest {
 		assertThat(view.monthChange().adjustments()).isEqualByComparingTo("-100");
 		assertThat(view.monthChange().total()).isEqualByComparingTo("200");
 		assertThat(view.cash()).isEqualByComparingTo("1200");
+	}
+
+	/** 本月淨資產變動加上借款利息（應計，DR-008）；質押今天起算 → 1 天的利息 33 元。 */
+	@Test
+	void monthChangeIncludesLoanInterest() {
+		Long a = account("A");
+		loans.create(new LoanForm("玉山質押", LoanType.PLEDGE, "玉山銀行", LoanOrigin.EXISTING, new BigDecimal("400000"),
+				today, new BigDecimal("400000"), new BigDecimal("3"), null, a, 25, null, null, null));
+
+		TotalAssetsView view = service.view();
+
+		assertThat(view.monthChange().interest()).isEqualByComparingTo("33");
+		assertThat(view.monthChange().total()).isEqualByComparingTo("-33");
 	}
 
 	@Test

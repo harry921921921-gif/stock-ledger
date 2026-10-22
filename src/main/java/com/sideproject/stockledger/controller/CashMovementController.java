@@ -19,6 +19,7 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.sideproject.stockledger.dto.CashMovementForm;
 import com.sideproject.stockledger.dto.ItemMovements;
+import com.sideproject.stockledger.dto.LoanMovementForm;
 import com.sideproject.stockledger.dto.MovementSearch;
 import com.sideproject.stockledger.dto.OpeningForm;
 import com.sideproject.stockledger.dto.ReconcileForm;
@@ -41,6 +42,7 @@ public class CashMovementController {
 	private static final String MOVEMENT_FORM = "assets/movement-form";
 	private static final String OPENING_FORM = "assets/opening-form";
 	private static final String RECONCILE_FORM = "assets/reconcile-form";
+	private static final String LOAN_MOVEMENT_FORM = "assets/loan-movement-form";
 
 	private final CashMovementService movements;
 	private final CashAccountService accounts;
@@ -111,10 +113,10 @@ public class CashMovementController {
 	/** 依固定項目（item）或搜尋字（q）列出所有月份的結果；都沒有就依月份瀏覽。 */
 	@GetMapping("/assets/movements")
 	public String list(@RequestParam(required = false) String month, @RequestParam(required = false) String q,
-			@RequestParam(required = false) Long item, Model model) {
-		// 從固定收支頁的「看紀錄」來：只列這個項目產生的異動
-		if (item != null) {
-			ItemMovements byItem = totalAssets.byRecurringItem(item);
+			@RequestParam(required = false) Long item, @RequestParam(required = false) Long loan, Model model) {
+		// 從固定收支頁或資金來源頁的「看紀錄」來：只列這個項目或借款產生的異動
+		if (item != null || loan != null) {
+			ItemMovements byItem = item != null ? totalAssets.byRecurringItem(item) : totalAssets.byLoan(loan);
 			model.addAttribute("byItem", byItem);
 			model.addAttribute("rows", byItem.rows());
 			return "assets/movements";
@@ -157,6 +159,12 @@ public class CashMovementController {
 			case DEPOSIT, WITHDRAWAL, TRANSFER -> {
 				model.addAttribute("form", movements.movementForm(id));
 				yield MOVEMENT_FORM;
+			}
+			// 借款的撥款、還本、利息只能改日期與金額
+			case LOAN_DISBURSEMENT, LOAN_PRINCIPAL, LOAN_INTEREST -> {
+				model.addAttribute("form", movements.loanMovementForm(id));
+				model.addAttribute("movementType", m.getType());
+				yield LOAN_MOVEMENT_FORM;
 			}
 		};
 	}
@@ -224,6 +232,28 @@ public class CashMovementController {
 		catch (CashValidationException ex) {
 			result.reject("invalid", ex.getMessage());
 			return RECONCILE_FORM;
+		}
+	}
+
+	@PostMapping("/assets/movements/{id}/edit-loan")
+	public String updateLoanMovement(@PathVariable Long id, @ModelAttribute("form") LoanMovementForm form,
+			BindingResult result, @RequestParam(required = false) String reason, Model model,
+			RedirectAttributes redirect) {
+		CashMovement m = movements.find(id);
+		model.addAttribute("movementId", id);
+		model.addAttribute("movementType", m.getType());
+		model.addAttribute("reason", reason);
+		if (result.hasErrors()) {
+			return LOAN_MOVEMENT_FORM;
+		}
+		try {
+			CashMovement saved = movements.editLoanMovement(id, form, reason);
+			redirect.addFlashAttribute("message", "已修改" + saved.getType().label());
+			return redirectToMonth(saved);
+		}
+		catch (CashValidationException ex) {
+			result.reject("invalid", ex.getMessage());
+			return LOAN_MOVEMENT_FORM;
 		}
 	}
 

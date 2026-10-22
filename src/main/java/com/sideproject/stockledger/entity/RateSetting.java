@@ -47,6 +47,10 @@ public class RateSetting {
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private LocalDateTime createdAt;
 
+	/** 借款年利率綁定的借款；其他種類為 null（V9）。 */
+	@Column(name = "loan_id", updatable = false)
+	private Long loanId;
+
 	protected RateSetting() {
 		// JPA 需要
 	}
@@ -64,6 +68,21 @@ public class RateSetting {
 		rate.value = value;
 		rate.effectiveDate = effectiveDate;
 		rate.note = note;
+		rate.createdAt = now;
+		return rate;
+	}
+
+	/** 某一筆借款的年利率版本（0.025 = 2.5%）。只新增、不修改。 */
+	public static RateSetting loanRate(Long userId, Long loanId, BigDecimal annualRate, LocalDate effectiveDate,
+			LocalDateTime now) {
+		Objects.requireNonNull(userId, "userId");
+		Objects.requireNonNull(loanId, "loanId");
+		RateSetting rate = new RateSetting();
+		rate.userId = userId;
+		rate.loanId = loanId;
+		rate.kind = RateKind.LOAN_ANNUAL_RATE;
+		rate.value = annualRate;
+		rate.effectiveDate = effectiveDate;
 		rate.createdAt = now;
 		return rate;
 	}
@@ -98,6 +117,10 @@ public class RateSetting {
 
 	public LocalDateTime getCreatedAt() {
 		return createdAt;
+	}
+
+	public Long getLoanId() {
+		return loanId;
 	}
 
 }
