@@ -41,6 +41,15 @@ public interface CashMovementRepository extends Repository<CashMovement, Long> {
 
 	Optional<CashMovement> findByIdAndUserId(Long id, Long userId);
 
+	/** 這個固定項目這一期是否已經產生過異動（含作廢的）：固定金額的項目作廢後不再自動補。 */
+	boolean existsByUserIdAndRecurringItemIdAndPeriod(Long userId, Long recurringItemId, LocalDate period);
+
+	/** 這個固定項目沒作廢的異動（找出每月自己填還沒填的期數）。 */
+	List<CashMovement> findByUserIdAndRecurringItemIdAndVoidedFalse(Long userId, Long recurringItemId);
+
+	/** 這個固定項目產生的所有異動（含作廢的），新的在前；全部異動頁依項目篩選用。 */
+	List<CashMovement> findByUserIdAndRecurringItemIdOrderByMovementDateDescIdDesc(Long userId, Long recurringItemId);
+
 	/**
 	 * 修改或作廢前讀取並鎖住這一列（SELECT … FOR UPDATE）：兩個請求同時改同一筆時，第二個會等第一個完成，
 	 * 再讀到最新的值，修改紀錄的「舊值」才接得起來，也不會作廢兩次。

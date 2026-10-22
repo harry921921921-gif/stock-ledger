@@ -12,6 +12,8 @@
 	--success-text: #0b7a47;
 	--info-bg: #eaf2fd;
 	--info-text: #174a96;
+	--warning-bg: #fff4e0;
+	--warning-text: #8a4b00;
 	--radius: 8px;
 }
 
@@ -95,6 +97,7 @@ label.checkbox { font-weight: 400; display: flex; gap: 8px; align-items: center;
 .alert { padding: 10px 12px; border-radius: var(--radius); margin: 12px 0 0; }
 .alert-error { background: var(--error-bg); color: var(--error-text); }
 .alert-info { background: var(--info-bg); color: var(--info-text); }
+.alert-warning { background: var(--warning-bg); color: var(--warning-text); }
 
 /* ---------- 登入頁 ---------- */
 .login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
@@ -122,6 +125,7 @@ label.checkbox { font-weight: 400; display: flex; gap: 8px; align-items: center;
 .breadcrumb { margin: 0 0 8px; color: var(--muted); font-size: 0.9em; }
 .breadcrumb a { color: var(--muted); }
 .page-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.page-header .btn { flex: none; white-space: nowrap; }
 a.btn { display: inline-block; text-decoration: none; }
 
 .table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
@@ -147,7 +151,7 @@ input.field-invalid, select.field-invalid { border-color: var(--error-text); }
 details summary { cursor: pointer; color: var(--primary); }
 .history { margin: 8px 0 0; padding-left: 18px; line-height: 1.8; }
 .badge { display: inline-block; padding: 0 8px; border-radius: 999px; background: var(--info-bg); color: var(--info-text); font-size: 0.8em; }
-input[type="date"] { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; background: var(--surface); }
+input[type="date"], input[type="number"], input[type="month"] { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; background: var(--surface); }
 
 /* ---------- 使用者管理 ---------- */
 .inline-form { display: flex; gap: 8px; align-items: center; }
@@ -174,3 +178,12 @@ input[type="date"] { width: 100%; padding: 9px 12px; border: 1px solid var(--bor
 .search-form { display: flex; gap: 8px; align-items: center; margin: 12px 0; }
 .search-form input { width: 260px; max-width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; }
 .label-text { font-weight: 600; margin-right: 8px; }
+
+/* ---------- 固定收支頁 ---------- */
+.unfilled-row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.unfilled-row:last-child { border-bottom: none; }
+.unfilled-row .inline-form input { width: 140px; }
+.table-scroll { overflow-x: auto; }
+/* 窄畫面時表格左右捲動，不要把名稱、日期擠成好幾行 */
+.table-scroll .table { min-width: 720px; }
+.table-scroll .table th, .table-scroll .table td { white-space: nowrap; }

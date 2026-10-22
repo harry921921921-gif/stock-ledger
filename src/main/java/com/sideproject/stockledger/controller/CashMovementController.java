@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.sideproject.stockledger.dto.CashMovementForm;
+import com.sideproject.stockledger.dto.ItemMovements;
 import com.sideproject.stockledger.dto.MovementSearch;
 import com.sideproject.stockledger.dto.OpeningForm;
 import com.sideproject.stockledger.dto.ReconcileForm;
@@ -107,10 +108,17 @@ public class CashMovementController {
 
 	// ---------- 全部異動 ----------
 
-	/** 有搜尋字（q）時列出所有月份的搜尋結果；沒有就依月份瀏覽。 */
+	/** 依固定項目（item）或搜尋字（q）列出所有月份的結果；都沒有就依月份瀏覽。 */
 	@GetMapping("/assets/movements")
 	public String list(@RequestParam(required = false) String month, @RequestParam(required = false) String q,
-			Model model) {
+			@RequestParam(required = false) Long item, Model model) {
+		// 從固定收支頁的「看紀錄」來：只列這個項目產生的異動
+		if (item != null) {
+			ItemMovements byItem = totalAssets.byRecurringItem(item);
+			model.addAttribute("byItem", byItem);
+			model.addAttribute("rows", byItem.rows());
+			return "assets/movements";
+		}
 		if (q != null && !q.isBlank()) {
 			MovementSearch search = totalAssets.search(q);
 			model.addAttribute("search", search);

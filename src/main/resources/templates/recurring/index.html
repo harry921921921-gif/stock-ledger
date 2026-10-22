@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>固定收支 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<!-- 依設計稿「固定收支」（Recurring）。所有數字都由 RecurringItemService 算好，這裡只負責顯示與加千分位。 -->
+<div class="app" th:with="v=${view}">
+	<aside th:replace="~{fragments/layout :: sidebar('recurring')}"></aside>
+	<main class="content">
+		<div class="page-header">
+			<div>
+				<h1>固定收支</h1>
+				<p class="muted">每期固定進出的錢。固定金額的項目到了入帳日自動記帳；每月自己填的項目（例如生活費）要自己填金額。</p>
+			</div>
+			<a class="btn btn-primary" th:href="@{/recurring/new}">新增項目</a>
+		</div>
+
+		<p class="alert alert-info" th:if="${message}" th:text="${message}">已新增</p>
+		<p class="alert alert-error" th:if="${error}" th:text="${error}">金額要大於 0</p>
+
+		<section class="stat-grid" aria-label="關鍵數字">
+			<div class="stat-card">
+				<span class="stat-label">每月固定收入</span>
+				<span class="stat-value" th:text="${@money.plain(v.monthlyIncome())}">62,000</span>
+				<span class="stat-note" th:text="|${v.incomeCount()} 個項目|">1 個項目</span>
+			</div>
+			<div class="stat-card">
+				<span class="stat-label">每月固定支出（月平均）</span>
+				<span class="stat-value" th:text="${@money.plain(v.monthlyExpense())}">18,600</span>
+				<span class="stat-note" th:text="|${v.expenseCount()} 個項目，年繳、半年繳換算成月平均|">8 個項目</span>
+			</div>
+			<div class="stat-card">
+				<span class="stat-label">本月自己填</span>
+				<span class="stat-value" th:text="${@money.plain(v.manualFilledThisMonth())}">27,000</span>
+				<span class="stat-note" th:if="${v.manualItemCount() == 0}">沒有每月自己填的項目</span>
+				<span class="stat-note" th:if="${v.manualItemCount() > 0 and #lists.isEmpty(v.manualUnfilledNames())}">本月都填好了</span>
+				<span class="stat-note" th:unless="${#lists.isEmpty(v.manualUnfilledNames())}"
+						th:text="|還沒填：${#strings.listJoin(v.manualUnfilledNames(), '、')}|">還沒填：生活費</span>
+			</div>
+		</section>
+
+		<!-- 每月自己填還沒填的期數：可以直接填金額（日期用那一期的入帳日，本月還沒到就用今天） -->
+		<section class="panel" th:unless="${#lists.isEmpty(v.unfilled())}">
+			<h2>還沒填的金額</h2>
+			<div class="unfilled-row" th:each="u : ${v.unfilled()}">
+				<span>
+					<strong th:text="|${u.period()} ${u.itemName()}|">2026-10 生活費</span>
+					<span class="badge" th:if="${u.overdue()}">還沒填</span>
+					<span class="muted" th:unless="${u.overdue()}" th:text="|入帳日 ${u.dueDate()}，可以先填|">入帳日 2026-10-31</span>
+				</span>
+				<form class="inline-form" method="post" th:action="@{/recurring/{id}/fill(id=${u.itemId()})}">
+					<input type="hidden" name="formToken" th:value="${formToken}">
+					<input type="hidden" name="period" th:value="${u.period()}">
+					<input type="text" name="amount" inputmode="numeric" placeholder="金額，整數元" required
+							th:attr="aria-label=|${u.period()} ${u.itemName()}的金額|">
+					<button type="submit" class="btn btn-secondary" data-busy-text="記錄中…">記錄</button>
+				</form>
+			</div>
+		</section>
+
+		<section class="panel">
+			<h2>固定收入</h2>
+			<p class="muted" th:if="${#lists.isEmpty(v.income())}">還沒有固定收入。</p>
+			<div class="table-scroll" th:unless="${#lists.isEmpty(v.income())}">
+				<table th:replace="~{fragments/recurring-table :: itemTable(${v.income()})}"></table>
+			</div>
+		</section>
+
+		<section class="panel">
+			<h2>固定支出</h2>
+			<p class="muted" th:if="${#lists.isEmpty(v.expense())}">還沒有固定支出。</p>
+			<div class="table-scroll" th:unless="${#lists.isEmpty(v.expense())}">
+				<table th:replace="~{fragments/recurring-table :: itemTable(${v.expense()})}"></table>
+			</div>
+			<p class="muted">不再需要的項目：按「修改」填結束月份，之後不再記帳，過去的紀錄不受影響。</p>
+		</section>
+
+		<section class="panel" th:unless="${#lists.isEmpty(v.ended())}">
+			<h2>已結束的項目</h2>
+			<div class="table-scroll">
+				<table th:replace="~{fragments/recurring-table :: itemTable(${v.ended()})}"></table>
+			</div>
+		</section>
+	</main>
+</div>
+</body>
+</html>

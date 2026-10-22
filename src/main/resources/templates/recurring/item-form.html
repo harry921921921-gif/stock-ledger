@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title th:text="${itemId == null} ? '新增固定項目 · 台股資產帳本' : '修改固定項目 · 台股資產帳本'">新增固定項目 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('recurring')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/recurring}">固定收支</a></p>
+		<h1 th:text="${itemId == null} ? '新增固定項目' : '修改固定項目'">新增固定項目</h1>
+		<p class="muted" th:if="${itemId == null}">固定金額：到了入帳日自動記一筆。每月自己填：每個月自己填當月的金額，例如生活費；入帳日過了還沒填，會在總資產頁提醒。開始月份選過去的月份，會補記已到期的入帳。</p>
+		<p class="muted" th:if="${itemId != null}">修改只影響還沒記帳的期數，已經記好的不變。收入或支出、金額方式、週期、開始月份不能改；要改就填結束月份，再新增一個。</p>
+
+		<p class="muted" th:if="${#lists.isEmpty(myAccounts)}">還沒有現金帳戶，請先<a th:href="@{/settings/accounts/new}">新增帳戶</a>。</p>
+
+		<!-- 新增送到 /recurring/new（帶一次性代號，防止連點存成兩筆）；修改送到 /recurring/{id}/edit -->
+		<form class="form-card" method="post" th:object="${form}" th:unless="${#lists.isEmpty(myAccounts)}"
+				th:action="${itemId == null} ? @{/recurring/new} : @{/recurring/{id}/edit(id=${itemId})}">
+			<p class="alert alert-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}">錯誤訊息</p>
+			<p class="alert alert-error" th:if="${#fields.hasErrors('*')}" th:each="e : ${#fields.errors('*')}" th:text="${e}">錯誤訊息</p>
+			<input type="hidden" name="formToken" th:if="${itemId == null}" th:value="${formToken}">
+
+			<label for="name">名稱</label>
+			<input id="name" type="text" th:field="*{name}" maxlength="50" placeholder="例如：薪水、孝親費、生活費" required>
+
+			<!-- 新增時可以選；修改時不能改，只顯示並用 hidden 送回 -->
+			<th:block th:if="${itemId == null}">
+				<label for="direction">收入或支出</label>
+				<select id="direction" th:field="*{direction}">
+					<option th:each="d : ${directions}" th:value="${d}" th:text="${d.label()}">支出</option>
+				</select>
+
+				<label for="amountMode">金額方式</label>
+				<select id="amountMode" th:field="*{amountMode}">
+					<option th:each="m : ${amountModes}" th:value="${m}" th:text="${m.label()}">固定金額</option>
+				</select>
+
+				<label for="cycle">週期</label>
+				<select id="cycle" th:field="*{cycle}">
+					<option th:each="c : ${cycles}" th:value="${c}" th:text="${c.label()}">每月</option>
+				</select>
+				<p class="muted">每月自己填的項目只能選每月。</p>
+			</th:block>
+			<th:block th:if="${itemId != null}">
+				<p>
+					<span class="label-text">收入或支出</span> <span th:text="*{direction} != null ? *{direction.label()} : '—'">支出</span>
+					<span class="label-text">金額方式</span> <span th:text="*{amountMode} != null ? *{amountMode.label()} : '—'">固定金額</span>
+					<span class="label-text">週期</span> <span th:text="*{cycle} != null ? *{cycle.label()} : '—'">每月</span>
+				</p>
+				<input type="hidden" th:field="*{direction}">
+				<input type="hidden" th:field="*{amountMode}">
+				<input type="hidden" th:field="*{cycle}">
+			</th:block>
+
+			<div data-show-source="amountMode" data-show-for="FIXED">
+				<label for="amount">金額</label>
+				<input id="amount" type="text" inputmode="numeric" th:field="*{amount}" placeholder="每期金額，整數元">
+			</div>
+
+			<div data-show-source="cycle" data-show-for="SEMIANNUAL YEARLY">
+				<label for="anchorMonth">月份</label>
+				<select id="anchorMonth" th:field="*{anchorMonth}">
+					<option value="">請選擇</option>
+					<option th:each="m : ${#numbers.sequence(1, 12)}" th:value="${m}" th:text="|${m} 月|">1 月</option>
+				</select>
+				<p class="muted">每年：這個月入帳。每半年：這個月和 6 個月後入帳。</p>
+			</div>
+
+			<label for="dayOfMonth">入帳日</label>
+			<input id="dayOfMonth" type="number" min="1" max="31" th:field="*{dayOfMonth}" placeholder="幾號（1～31）" required>
+			<p class="muted">該月沒有那一天時用該月最後一天，例如 31 號在 2 月是 28 或 29 號。</p>
+
+			<label for="accountId">帳戶</label>
+			<select id="accountId" th:field="*{accountId}">
+				<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">薪資帳戶</option>
+			</select>
+
+			<th:block th:if="${itemId == null}">
+				<label for="startMonth">開始月份</label>
+				<input id="startMonth" type="month" th:field="*{startMonth}" required>
+			</th:block>
+			<th:block th:if="${itemId != null}">
+				<p><span class="label-text">開始月份</span> <span th:text="*{startMonth}">2026-10</span></p>
+				<input type="hidden" th:field="*{startMonth}">
+			</th:block>
+
+			<label for="endMonth">結束月份</label>
+			<input id="endMonth" type="month" th:field="*{endMonth}">
+			<p class="muted">可不填。不再需要時填結束月份，之後不再記帳。</p>
+
+			<div class="form-actions">
+				<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">儲存</button>
+				<a class="btn btn-link" th:href="@{/recurring}">取消</a>
+			</div>
+		</form>
+	</main>
+</div>
+</body>
+</html>

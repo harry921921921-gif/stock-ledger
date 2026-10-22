@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!-- 固定收支頁的項目清單表格（收入、支出、已結束共用）。用法：<table th:replace="~{fragments/recurring-table :: itemTable(${rows})}"></table> -->
+<table class="table" th:fragment="itemTable(rows)">
+	<thead><tr><th>名稱</th><th class="num">每期金額</th><th class="num">月平均</th><th>入帳日</th><th>下次入帳</th><th>帳戶</th><th>操作</th></tr></thead>
+	<tbody>
+		<tr th:each="r : ${rows}">
+			<td th:text="${r.name()}">薪水</td>
+			<td class="num" th:text="${r.manual()} ? '每月自己填' : ${@money.plain(r.amount())}">62,000</td>
+			<td class="num" th:text="${r.manual()} ? '—' : ${@money.plain(r.monthlyAverage())}">62,000</td>
+			<td>
+				<span th:text="${r.scheduleLabel()}">每月 5 號</span>
+				<span class="muted" th:if="${r.endMonth() != null}" th:text="|（到 ${r.endMonth()}）|">（到 2026-12）</span>
+			</td>
+			<td th:text="${r.nextDue() != null} ? ${r.nextDue()} : '—'">2026-11-05</td>
+			<td th:text="${r.accountName()}">銀行活存</td>
+			<td>
+				<a th:href="@{/recurring/{id}/edit(id=${r.id()})}">修改</a> ·
+				<a th:href="@{/assets/movements(item=${r.id()})}">看紀錄</a>
+			</td>
+		</tr>
+	</tbody>
+</table>
+</body>
+</html>

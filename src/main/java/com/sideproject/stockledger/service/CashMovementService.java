@@ -5,6 +5,7 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -123,6 +124,10 @@ public class CashMovementService {
 		}
 		Accounts resolved = validateAmountMovement(userId, m.getType(), form);
 		String cleanReason = cleanReason(reason);
+		// 固定收支產生的異動屬於某一期：日期留在那個月，現金流和期別才對得上
+		if (m.getPeriod() != null && form.date() != null && !YearMonth.from(form.date()).equals(m.getPeriod())) {
+			throw new CashValidationException("這筆是 " + m.getPeriod() + " 的固定收支，日期要在那個月內");
+		}
 		Map<String, String> before = snapshot(m);
 		m.change(form.date(), resolved.from(), resolved.to(), form.amount(), form.note());
 		writeEditRevisions(m, before, cleanReason);
@@ -201,6 +206,12 @@ public class CashMovementService {
 	public List<CashMovement> searchByNote(String text) {
 		String escaped = text.replace("!", "!!").replace("%", "!%").replace("_", "!_");
 		return movements.searchNote(currentUser.id(), "%" + escaped + "%");
+	}
+
+	/** 目前登入者某個固定項目產生的異動（含作廢的），新的在前。 */
+	@Transactional(readOnly = true)
+	public List<CashMovement> listByRecurringItem(Long itemId) {
+		return movements.findByUserIdAndRecurringItemIdOrderByMovementDateDescIdDesc(currentUser.id(), itemId);
 	}
 
 	/** 某個帳戶的初始現金餘額日期；沒有初始現金餘額時為 empty。 */

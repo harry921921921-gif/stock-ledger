@@ -25,26 +25,38 @@ document.addEventListener('submit', function (event) {
 	});
 });
 
-// 依類型只顯示需要的欄位：<div data-show-for="DEPOSIT TRANSFER"> 只在 #type 是其中之一時顯示。
-// 隱藏的欄位同時設 disabled，表單送出時就不會帶上切換類型前選的舊值。
-// 沒有 JavaScript 時所有欄位都顯示，伺服器照類型檢查。
+// 依某個欄位的值只顯示需要的欄位：<div data-show-source="cycle" data-show-for="SEMIANNUAL YEARLY">
+// 只在 #cycle 是其中之一時顯示；沒寫 data-show-source 時看 #type（記一筆現金異動）。
+// 隱藏的欄位同時設 disabled，表單送出時就不會帶上切換前選的舊值。
+// 沒有 JavaScript 時所有欄位都顯示，伺服器照規則檢查。
 (function () {
-	var type = document.getElementById('type');
 	var sections = document.querySelectorAll('[data-show-for]');
-	if (!type || sections.length === 0) {
+	if (sections.length === 0) {
 		return;
+	}
+	function sourceOf(section) {
+		return document.getElementById(section.dataset.showSource || 'type');
 	}
 	function apply() {
 		sections.forEach(function (section) {
-			var show = section.dataset.showFor.split(' ').indexOf(type.value) >= 0;
+			var source = sourceOf(section);
+			if (!source) {
+				return;
+			}
+			var show = section.dataset.showFor.split(' ').indexOf(source.value) >= 0;
 			section.hidden = !show;
 			section.querySelectorAll('input, select, textarea').forEach(function (field) {
 				field.disabled = !show;
 			});
 		});
 	}
-	type.addEventListener('change', apply);
-	// 按「上一頁」回來時瀏覽器會還原之前選的類型，要再套用一次
+	sections.forEach(function (section) {
+		var source = sourceOf(section);
+		if (source) {
+			source.addEventListener('change', apply);
+		}
+	});
+	// 按「上一頁」回來時瀏覽器會還原之前選的值，要再套用一次
 	window.addEventListener('pageshow', apply);
 	apply();
 })();

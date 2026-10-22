@@ -19,6 +19,12 @@
 
 		<p class="alert alert-info" th:if="${message}" th:text="${message}">已記錄</p>
 
+		<!-- 「每月自己填」的項目入帳日過了還沒填（設計文件 4.3）：以前月份漏填的也一直提醒，直到補填 -->
+		<p class="alert alert-warning" th:each="r : ${v.reminders()}">
+			<span th:text="|${r.period()} ${r.itemName()}還沒填|">2026-10 生活費還沒填</span> ·
+			<a th:href="@{/recurring}">去固定收支填金額</a>
+		</p>
+
 		<!-- 四張數字卡片 -->
 		<section class="stat-grid" aria-label="關鍵數字">
 			<div class="stat-card">

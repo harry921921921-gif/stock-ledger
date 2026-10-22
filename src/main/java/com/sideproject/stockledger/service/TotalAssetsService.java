@@ -23,12 +23,14 @@ import com.sideproject.stockledger.calculator.ShareCalculator;
 import com.sideproject.stockledger.dto.AccountCard;
 import com.sideproject.stockledger.dto.AllocationRow;
 import com.sideproject.stockledger.dto.Direction;
+import com.sideproject.stockledger.dto.ItemMovements;
 import com.sideproject.stockledger.dto.MovementRow;
 import com.sideproject.stockledger.dto.MovementSearch;
 import com.sideproject.stockledger.dto.TotalAssetsView;
 import com.sideproject.stockledger.entity.CashAccount;
 import com.sideproject.stockledger.entity.CashMovement;
 import com.sideproject.stockledger.entity.CashMovementType;
+import com.sideproject.stockledger.entity.RecurringItem;
 
 /**
  * 總資產頁（spec 第 3 節第 2 頁、4.3、4.6）。所有數字在這裡算好，模板只顯示。
@@ -46,13 +48,15 @@ public class TotalAssetsService {
 
 	private final CashAccountService accounts;
 	private final CashMovementService movements;
+	private final RecurringItemService recurringItems;
 	private final MoneyFormatter money;
 	private final Clock clock;
 
-	public TotalAssetsService(CashAccountService accounts, CashMovementService movements, MoneyFormatter money,
-			Clock clock) {
+	public TotalAssetsService(CashAccountService accounts, CashMovementService movements,
+			RecurringItemService recurringItems, MoneyFormatter money, Clock clock) {
 		this.accounts = accounts;
 		this.movements = movements;
+		this.recurringItems = recurringItems;
 		this.money = money;
 		this.clock = clock;
 	}
@@ -83,7 +87,7 @@ public class TotalAssetsService {
 			.toList(), myAccounts, ledger);
 
 		return new TotalAssetsView(total, stockValue, cash, myAccounts.size(), share(cash, total), monthChange,
-				allocation, largest, cards, recent);
+				allocation, largest, cards, recent, recurringItems.overdueReminders());
 	}
 
 	/** 全部異動頁：某個月的所有異動（含作廢的），新的在前。 */
@@ -112,6 +116,15 @@ public class TotalAssetsService {
 		}
 		CashLedger ledger = CashLedgerCalculator.compute(movements.activeEvents(), LocalDate.now(clock));
 		return new MovementSearch(text, rows(movements.searchByNote(text), accounts.listMine(), ledger), null);
+	}
+
+	/** 全部異動頁依固定項目篩選：這個項目產生的所有異動（含作廢的），新的在前。別人的項目 → NotFoundException。 */
+	@Transactional(readOnly = true)
+	public ItemMovements byRecurringItem(Long itemId) {
+		RecurringItem item = recurringItems.find(itemId);
+		CashLedger ledger = CashLedgerCalculator.compute(movements.activeEvents(), LocalDate.now(clock));
+		return new ItemMovements(item.getId(), item.getName(),
+				rows(movements.listByRecurringItem(item.getId()), accounts.listMine(), ledger));
 	}
 
 	/** 某個帳戶今天的系統推算餘額（輸入實際餘額時給使用者對照）。別人的帳戶 → NotFoundException。 */

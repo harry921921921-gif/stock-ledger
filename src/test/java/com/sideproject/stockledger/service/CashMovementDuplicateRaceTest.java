@@ -75,6 +75,7 @@ class CashMovementDuplicateRaceTest {
 	void setUp() {
 		jdbc.update("DELETE FROM cash_movement_revision");
 		jdbc.update("DELETE FROM cash_movement");
+		jdbc.update("DELETE FROM recurring_item");
 		jdbc.update("DELETE FROM cash_account");
 		if (!users.existsByUsername("race-cash")) {
 			users.save(AppUser.create("race-cash", encoder.encode("password123"), "race-cash", Role.USER,

@@ -3,6 +3,7 @@ package com.sideproject.stockledger.entity;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -19,7 +20,7 @@ import com.sideproject.stockledger.calculator.CashEvent;
 
 /**
  * 一筆現金事件（spec 4.6、6 CashMovement、DR-032）。只存原始輸入；餘額與餘額調整由事件推算。
- * 不硬刪除：作廢用 voided 旗標。資料表另有兩個「產生欄位」讓資料庫保證唯一性，這裡不對應。
+ * 不硬刪除：作廢用 voided 旗標。資料表另有三個「產生欄位」讓資料庫保證唯一性，這裡不對應。
  */
 @Entity
 @Table(name = "cash_movement")
@@ -61,8 +62,29 @@ public class CashMovement {
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private LocalDateTime createdAt;
 
+	/** 固定收支自動產生（或每月自己填）時，屬於哪個項目；其他異動為 null（V8）。 */
+	@Column(name = "recurring_item_id", updatable = false)
+	private Long recurringItemId;
+
+	/** 屬於哪一期：該期所在月份的 1 號；和 recurringItemId 同時有或同時沒有。 */
+	@Column(name = "period", updatable = false)
+	private LocalDate period;
+
 	protected CashMovement() {
 		// JPA 需要
+	}
+
+	/**
+	 * 固定項目某一期的異動：收入是存入、支出是支出，帳戶是項目的帳戶，備註是項目名稱。
+	 * 和手動記的一樣可以修改金額、日期或作廢；所屬項目與期別不會改。
+	 */
+	public static CashMovement ofRecurring(RecurringItem item, LocalDate date, BigDecimal amount, YearMonth period,
+			LocalDateTime now) {
+		CashMovement m = ofAmount(item.getUserId(), item.getDirection().movementType(), date, item.getAccountId(), null,
+				amount, item.getName(), now);
+		m.recurringItemId = item.getId();
+		m.period = period.atDay(1);
+		return m;
 	}
 
 	/** 存入、支出、互轉、初始現金餘額。toAccountId 只有互轉才有。 */
@@ -183,6 +205,14 @@ public class CashMovement {
 
 	public LocalDateTime getCreatedAt() {
 		return createdAt;
+	}
+
+	public Long getRecurringItemId() {
+		return recurringItemId;
+	}
+
+	public YearMonth getPeriod() {
+		return period == null ? null : YearMonth.from(period);
 	}
 
 }

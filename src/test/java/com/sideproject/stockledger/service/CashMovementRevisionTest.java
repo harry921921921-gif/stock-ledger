@@ -71,6 +71,7 @@ class CashMovementRevisionTest {
 	void setUp() {
 		jdbc.update("DELETE FROM cash_movement_revision");
 		jdbc.update("DELETE FROM cash_movement");
+		jdbc.update("DELETE FROM recurring_item");
 		jdbc.update("DELETE FROM cash_account");
 		createIfMissing("cr-amy");
 		createIfMissing("cr-ben");

@@ -52,6 +52,7 @@ class TotalAssetsControllerTest {
 	void setUp() {
 		jdbc.update("DELETE FROM cash_movement_revision");
 		jdbc.update("DELETE FROM cash_movement");
+		jdbc.update("DELETE FROM recurring_item");
 		jdbc.update("DELETE FROM cash_account");
 		if (!users.existsByUsername("tac-amy")) {
 			users.save(AppUser.create("tac-amy", encoder.encode("password123"), "tac-amy", Role.USER,
