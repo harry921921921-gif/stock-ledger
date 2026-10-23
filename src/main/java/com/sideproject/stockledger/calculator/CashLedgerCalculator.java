@@ -35,9 +35,15 @@ public final class CashLedgerCalculator {
 		Map<Long, BigDecimal> balances = new HashMap<>();
 		Map<Long, BigDecimal> adjustments = new HashMap<>();
 		Map<Long, CashEvent> lastReconciliation = new HashMap<>();
+		// DR-047：借款與股票自動記的異動早於帳戶的初始現金餘額日期時，初始餘額已經包含它們，不再計算
+		Map<Long, LocalDate> openingDates = new HashMap<>();
+		events.stream()
+			.filter(e -> e.type() == CashMovementType.OPENING)
+			.forEach(e -> openingDates.put(e.accountId(), e.date()));
 
 		events.stream()
 			.filter(e -> !e.date().isAfter(asOf))
+			.filter(e -> !coveredByOpening(e.type(), e.accountId(), e.date(), openingDates))
 			.sorted(ORDER)
 			.forEach(e -> {
 				switch (e.type()) {
@@ -58,6 +64,16 @@ public final class CashLedgerCalculator {
 				}
 			});
 		return new CashLedger(Map.copyOf(balances), Map.copyOf(adjustments), Map.copyOf(lastReconciliation));
+	}
+
+	/** 借款與股票自動記的異動，日期早於它的帳戶的初始現金餘額日期（DR-047）。 */
+	public static boolean coveredByOpening(CashMovementType type, Long accountId, LocalDate date,
+			Map<Long, LocalDate> openingDates) {
+		if (!type.isTrade() && !type.isLoan()) {
+			return false;
+		}
+		LocalDate opening = openingDates.get(accountId);
+		return opening != null && date.isBefore(opening);
 	}
 
 	/** 本月存入、支出與餘額調整；初始現金餘額、帳戶互轉、借款撥款與還本不算（spec 4.3-2）。利息是 0，由呼叫端用 withInterest 加進來。 */

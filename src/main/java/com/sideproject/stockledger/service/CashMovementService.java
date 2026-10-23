@@ -189,7 +189,10 @@ public class CashMovementService {
 		}
 		checkPositiveWholeAmount(form.amount());
 		checkDate(form.date());
-		checkNotBeforeOpening(userId, m.getAccountId(), form.date());
+		// 配息是手動記的，不能早於帳戶起點；借款紀錄照真實日期，早於起點的不影響餘額（DR-047）
+		if (m.getType() == CashMovementType.DIVIDEND) {
+			checkNotBeforeOpening(userId, m.getAccountId(), form.date());
+		}
 		// 自動記的那一期日期要留在期別的月份；質押還清那筆利息記在還清當天，可能是期別的前一個月
 		if (m.getPeriod() != null && !YearMonth.from(form.date()).equals(m.getPeriod())
 				&& !YearMonth.from(form.date()).equals(m.getPeriod().minusMonths(1))) {

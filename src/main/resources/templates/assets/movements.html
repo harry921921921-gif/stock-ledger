@@ -59,6 +59,7 @@
 						<!-- 作廢也會寫修改紀錄，所以「已作廢」優先，不再顯示「曾修改」 -->
 						<span class="badge" th:if="${m.voided()}">已作廢</span>
 						<span class="badge" th:if="${m.revised() and !m.voided()}">曾修改</span>
+						<span class="badge" th:if="${m.beforeOpening() and !m.voided()}" title="早於這個帳戶的初始現金餘額日期，已經包含在初始餘額裡，不再影響餘額">已含在初始餘額</span>
 					</td>
 					<td class="num" th:replace="~{fragments/movement-amount :: amount(${m})}">+62,000</td>
 					<td>

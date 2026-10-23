@@ -27,6 +27,7 @@ import com.sideproject.stockledger.dto.AllocationLine;
 import com.sideproject.stockledger.dto.CashAccountForm;
 import com.sideproject.stockledger.dto.LoanCard;
 import com.sideproject.stockledger.dto.LoanForm;
+import com.sideproject.stockledger.dto.OpeningForm;
 import com.sideproject.stockledger.dto.PrincipalForm;
 import com.sideproject.stockledger.dto.TradeForm;
 import com.sideproject.stockledger.entity.AppUser;
@@ -53,6 +54,9 @@ class FundingStocksTest {
 
 	@Autowired
 	private CashMovementService cashMovements;
+
+	@Autowired
+	private TotalAssetsService totalAssets;
 
 	@Autowired
 	private CashAccountService accounts;
@@ -192,6 +196,35 @@ class FundingStocksTest {
 			assertThat(line.loanAmount()).isEqualByComparingTo("50000");
 		});
 		assertThat(card().purchases().get(0).loanAmount()).isEqualByComparingTo("20000");
+	}
+
+	/**
+	 * DR-047：先照真實日期記 8 個月前的借款和買進，再把帳戶初始現金餘額設在 10 天前 → 可以設定；
+	 * 帳戶餘額以初始餘額為準，加上之後的借款紀錄；借款與股票的數字照常算。
+	 */
+	@Test
+	void historyBeforeOpeningBalance() {
+		LocalDate start = today.minusMonths(8).withDayOfMonth(1);
+		Loan credit = loans.create(new LoanForm("土銀信貸", LoanType.CREDIT, "土地銀行", LoanOrigin.NEW,
+				new BigDecimal("200000"), start, new BigDecimal("200000"), new BigDecimal("2.45"), settlement,
+				settlement, 1, 84, java.time.YearMonth.from(start).plusMonths(1), null));
+		trades.create(new TradeForm(TradeType.BUY, start, "0056", settlement, 1000L, new BigDecimal("58.75"), null,
+				null, null, List.of(new AllocationLine(credit.getId(), new BigDecimal("58833")))));
+
+		LocalDate openingDate = today.minusDays(10);
+		cashMovements.setOpening(settlement, new OpeningForm(openingDate, new BigDecimal("50000")));
+
+		BigDecimal after = jdbc.queryForObject("SELECT COALESCE(SUM(amount), 0) FROM cash_movement WHERE account_id = ? "
+				+ "AND voided = FALSE AND type IN ('LOAN_PRINCIPAL', 'LOAN_INTEREST') AND movement_date >= ?",
+				BigDecimal.class, settlement, openingDate);
+		assertThat(totalAssets.systemBalance(settlement)).isEqualByComparingTo(new BigDecimal("50000").subtract(after));
+		LoanCard c = loans.fundingView().loans().stream().filter(x -> x.id().equals(credit.getId())).findFirst()
+			.orElseThrow();
+		assertThat(c.purchases()).hasSize(1);
+		assertThat(c.paidInterest()).isPositive();
+		assertThat(totalAssets.byLoan(credit.getId()).rows())
+			.allSatisfy(row -> assertThat(row.beforeOpening()).isEqualTo(row.date().isBefore(openingDate)))
+			.anySatisfy(row -> assertThat(row.beforeOpening()).isTrue());
 	}
 
 	/** 擔保股票與維持率：1000 股 × 60 ＝ 60,000 ÷ 400,000 ＝ 15% → 低於追繳線（預設 150%、130%）。 */

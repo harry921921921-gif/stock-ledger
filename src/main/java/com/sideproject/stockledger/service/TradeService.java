@@ -341,7 +341,7 @@ public class TradeService {
 		Long accountId = null;
 		if (cash) {
 			accountId = findMyAccount(form.accountId()).getId();
-			checkNotBeforeOpening(accountId, form.date());
+			// 買賣照真實日期記；早於帳戶初始現金餘額日期的不影響餘額（DR-047），所以不檢查帳戶起點
 		}
 		else if (form.accountId() != null && type == TradeType.STOCK_DIVIDEND) {
 			throw new TradeValidationException("配股不用選帳戶");

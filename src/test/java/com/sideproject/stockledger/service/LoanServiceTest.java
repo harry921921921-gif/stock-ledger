@@ -56,6 +56,9 @@ class LoanServiceTest {
 	private CashMovementService movements;
 
 	@Autowired
+	private TotalAssetsService totalAssets;
+
+	@Autowired
 	private AppUserRepository users;
 
 	@Autowired
@@ -144,14 +147,17 @@ class LoanServiceTest {
 		rejects(f -> withPayAccount(f, null), "請選擇扣款帳戶");
 	}
 
-	/** 起算日不能早於扣款帳戶的初始現金餘額日期（設計文件 11-7）。 */
+	/**
+	 * DR-047（2026-10-23 使用者決定，取代設計文件 11-7）：起算日可以早於扣款帳戶的初始現金餘額日期；
+	 * 早於那天的借款紀錄不影響帳戶餘額，帳戶餘額仍是初始現金餘額。
+	 */
 	@Test
-	void startBeforeOpeningRejected() {
+	void startBeforeOpeningAllowed() {
 		movements.setOpening(bank, new OpeningForm(today, new BigDecimal("100000")));
 
-		assertThatThrownBy(() -> service.create(withStart(existingCredit(), today.minusDays(1))))
-			.isInstanceOf(LoanValidationException.class)
-			.hasMessageContaining("初始現金餘額");
+		service.create(withStart(existingCredit(), today.minusDays(1)));
+
+		assertThat(totalAssets.systemBalance(bank)).isEqualByComparingTo("100000");
 	}
 
 	/** 改扣款日：從當月起生效（同 DR-037）。 */

@@ -72,7 +72,7 @@ public class FundingController {
 
 	@GetMapping("/funding/new")
 	public String newLoan(Model model, HttpSession session) {
-		model.addAttribute("form", new LoanForm(null, LoanType.CREDIT, null, LoanOrigin.EXISTING, null, loans.today(),
+		model.addAttribute("form", new LoanForm(null, LoanType.CREDIT, null, LoanOrigin.NEW, null, loans.today(),
 				null, null, null, null, null, null, null, null));
 		model.addAttribute("formToken", tokens.issue(session));
 		return LOAN_FORM;

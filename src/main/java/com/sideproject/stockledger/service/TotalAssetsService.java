@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -187,10 +188,16 @@ public class TotalAssetsService {
 		Map<Long, String> names = myAccounts.stream()
 			.collect(Collectors.toMap(CashAccount::getId, CashAccount::getName));
 		Set<Long> revised = movements.revisedIds();
-		return list.stream().map(m -> row(m, names, ledger, revised.contains(m.getId()))).toList();
+		Map<Long, LocalDate> openingDates = new HashMap<>();
+		myAccounts.forEach(a -> movements.openingDate(a.getId()).ifPresent(d -> openingDates.put(a.getId(), d)));
+		return list.stream()
+			.map(m -> row(m, names, ledger, revised.contains(m.getId()), CashLedgerCalculator
+				.coveredByOpening(m.getType(), m.getAccountId(), m.getMovementDate(), openingDates)))
+			.toList();
 	}
 
-	private MovementRow row(CashMovement m, Map<Long, String> names, CashLedger ledger, boolean revised) {
+	private MovementRow row(CashMovement m, Map<Long, String> names, CashLedger ledger, boolean revised,
+			boolean beforeOpening) {
 		Function<Long, String> name = id -> names.getOrDefault(id, "（已刪除的帳戶）");
 		String label = m.getType() == CashMovementType.TRANSFER
 				? name.apply(m.getAccountId()) + " → " + name.apply(m.getToAccountId())
@@ -211,7 +218,7 @@ public class TotalAssetsService {
 					: adjustment.signum() > 0 ? Direction.IN : Direction.OUT;
 		}
 		return new MovementRow(m.getId(), m.getMovementDate(), label, description, amount, direction, revised,
-				m.isVoided(), m.getType().isTrade());
+				m.isVoided(), m.getType().isTrade(), beforeOpening);
 	}
 
 	private static BigDecimal balanceOf(CashLedger ledger, Long accountId) {

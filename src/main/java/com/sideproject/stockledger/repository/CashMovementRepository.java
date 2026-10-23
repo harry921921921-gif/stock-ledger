@@ -78,10 +78,16 @@ public interface CashMovementRepository extends Repository<CashMovement, Long> {
 
 	/**
 	 * 某個帳戶（轉出或轉入都算）最早一筆沒作廢的異動日期，排除 excludeId（修改中的那筆；新增時傳 -1）。
-	 * 用來檢查「初始現金餘額不能晚於其他異動」。
+	 * 用來檢查「初始現金餘額不能晚於其他異動」。借款與股票買賣自動記的不算：它們照真實日期記，
+	 * 早於初始現金餘額日期的不影響餘額（DR-047）。
 	 */
 	@Query("select min(m.movementDate) from CashMovement m where m.userId = :userId and m.voided = false "
-			+ "and (m.accountId = :accountId or m.toAccountId = :accountId) and m.id <> :excludeId")
+			+ "and (m.accountId = :accountId or m.toAccountId = :accountId) and m.id <> :excludeId "
+			+ "and m.type not in (com.sideproject.stockledger.entity.CashMovementType.LOAN_DISBURSEMENT, "
+			+ "com.sideproject.stockledger.entity.CashMovementType.LOAN_PRINCIPAL, "
+			+ "com.sideproject.stockledger.entity.CashMovementType.LOAN_INTEREST, "
+			+ "com.sideproject.stockledger.entity.CashMovementType.STOCK_BUY, "
+			+ "com.sideproject.stockledger.entity.CashMovementType.STOCK_SELL)")
 	Optional<LocalDate> findEarliestDate(@Param("userId") Long userId, @Param("accountId") Long accountId,
 			@Param("excludeId") Long excludeId);
 

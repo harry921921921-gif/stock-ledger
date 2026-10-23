@@ -31,6 +31,27 @@ class CashLedgerCalculatorTest {
 		assertThat(balance(events, A)).isEqualByComparingTo("1300");
 	}
 
+	/**
+	 * DR-047：借款與股票的現金異動照真實日期記，早於初始現金餘額日期的不影響餘額（初始餘額已經包含它們）；
+	 * 初始餘額日期當天和之後的照常計算。沒有初始餘額的帳戶全部計算。
+	 */
+	@Test
+	void autoEventsBeforeOpeningDoNotChangeBalance() {
+		List<CashEvent> events = List.of(
+				event(CashMovementType.LOAN_DISBURSEMENT, A, null, "2026-02-01", "200000", null),
+				event(CashMovementType.STOCK_BUY, A, null, "2026-02-01", "97889", null),
+				event(CashMovementType.LOAN_PRINCIPAL, A, null, "2026-09-01", "2211", null),
+				event(CashMovementType.LOAN_INTEREST, A, null, "2026-09-01", "382", null),
+				opening(A, "2026-10-01", "50000"),
+				event(CashMovementType.LOAN_PRINCIPAL, A, null, "2026-10-01", "2216", null),
+				event(CashMovementType.LOAN_INTEREST, A, null, "2026-10-01", "377", null),
+				event(CashMovementType.LOAN_DISBURSEMENT, B, null, "2026-02-01", "1000", null));
+
+		CashLedger ledger = CashLedgerCalculator.compute(events, FAR_FUTURE);
+		assertThat(ledger.balances().get(A)).isEqualByComparingTo("47407");
+		assertThat(ledger.balances().get(B)).isEqualByComparingTo("1000");
+	}
+
 	@Test
 	void transferMovesBetweenAccounts() {
 		List<CashEvent> events = List.of(

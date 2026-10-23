@@ -13,8 +13,8 @@
 	<main class="content">
 		<p class="breadcrumb"><a th:href="@{/funding}">資金來源</a></p>
 		<h1 th:text="${loanId == null} ? '新增借款' : '修改借款'">新增借款</h1>
-		<p class="muted" th:if="${loanId == null}">開始用系統之前就借的，選「既有借款」，填今天（或起算日）還剩多少本金；新借的選「新撥款」，系統會記一筆撥款到撥入帳戶。</p>
-		<p class="muted" th:if="${loanId != null}">類型與方式不能改；起算日、起算本金、剩餘期數、第一期只有還沒開始記帳的既有借款可以改。利率請用「新增利率」。</p>
+		<p class="muted" th:if="${loanId == null}">照借款合約填：撥款日、借款金額、利率、期數。系統會從撥款日起記撥款和每一期的還本、利息，開始用系統以前借的也一樣照真實日期填（比帳戶初始現金餘額日期早的紀錄不影響帳戶餘額）。</p>
+		<p class="muted" th:if="${loanId != null}">類型不能改；撥款日、金額、期數、第一期只有還沒開始記帳時可以改。利率請用「新增利率」。</p>
 
 		<p class="muted" th:if="${#lists.isEmpty(myAccounts)}">還沒有現金帳戶，請先<a th:href="@{/settings/accounts/new}">新增帳戶</a>。</p>
 
@@ -35,28 +35,28 @@
 					<option th:each="t : ${loanTypes}" th:value="${t}" th:text="${t.label()}">信貸</option>
 				</select>
 
-				<label for="origin">方式</label>
-				<select id="origin" th:field="*{origin}">
-					<option th:each="o : ${origins}" th:value="${o}" th:text="${o.label()}">既有借款</option>
-				</select>
+				<!-- v1.9 起新增借款一律照撥款日記錄（DR-047），不再選方式 -->
+				<input type="hidden" id="origin" name="origin" value="NEW">
 			</th:block>
 			<th:block th:if="${loanId != null}">
 				<p>
 					<span class="label-text">類型</span> <span th:text="*{type} != null ? *{type.label()} : '—'">信貸</span>
-					<span class="label-text">方式</span> <span th:text="*{origin} != null ? *{origin.label()} : '—'">既有借款</span>
+					<span class="label-text" th:if="*{origin?.name() == 'EXISTING'}">方式</span> <span th:if="*{origin?.name() == 'EXISTING'}">既有借款（v1.8 以前建立）</span>
 				</p>
 				<input type="hidden" th:field="*{type}">
-				<input type="hidden" th:field="*{origin}">
+				<input type="hidden" id="origin" th:field="*{origin}">
 			</th:block>
 
-			<label for="originalAmount">原始借款金額</label>
-			<input id="originalAmount" type="text" inputmode="numeric" th:field="*{originalAmount}" placeholder="整數元；新撥款可不填">
+			<div data-show-source="origin" data-show-for="EXISTING">
+				<label for="originalAmount">原始借款金額</label>
+				<input id="originalAmount" type="text" inputmode="numeric" th:field="*{originalAmount}" placeholder="整數元">
+			</div>
 
-			<label for="startDate">起算日</label>
+			<label for="startDate" th:text="*{origin?.name() == 'EXISTING'} ? '起算日' : '撥款日'">撥款日</label>
 			<input id="startDate" type="date" th:field="*{startDate}" required>
 
-			<label for="startPrincipal">起算本金</label>
-			<input id="startPrincipal" type="text" inputmode="numeric" th:field="*{startPrincipal}" placeholder="新撥款填撥款金額；既有借款填起算日當時的剩餘本金" required>
+			<label for="startPrincipal" th:text="*{origin?.name() == 'EXISTING'} ? '起算本金' : '借款金額'">借款金額</label>
+			<input id="startPrincipal" type="text" inputmode="numeric" th:field="*{startPrincipal}" placeholder="整數元" required>
 
 			<th:block th:if="${loanId == null}">
 				<label for="annualRatePercent">年利率（%）</label>
@@ -81,8 +81,8 @@
 			<input id="payDay" type="number" min="1" max="31" th:field="*{payDay}" placeholder="幾號（1～31）" required>
 
 			<div data-show-source="type" data-show-for="CREDIT">
-				<label for="remainingPeriods">剩餘期數</label>
-				<input id="remainingPeriods" type="number" min="1" max="600" th:field="*{remainingPeriods}" placeholder="新撥款就是總期數">
+				<label for="remainingPeriods" th:text="*{origin?.name() == 'EXISTING'} ? '剩餘期數' : '總期數'">總期數</label>
+				<input id="remainingPeriods" type="number" min="1" max="600" th:field="*{remainingPeriods}" placeholder="例如 7 年就是 84 期">
 
 				<label for="firstPeriod">第一期扣款月份</label>
 				<input id="firstPeriod" type="month" th:field="*{firstPeriod}">

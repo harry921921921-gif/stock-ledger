@@ -117,7 +117,7 @@ public class LoanService {
 	@Transactional
 	public Loan create(LoanForm form) {
 		Long userId = currentUser.id();
-		BigDecimal rate = validate(form, form.startDate());
+		BigDecimal rate = validate(form);
 		BigDecimal original = form.origin() == LoanOrigin.NEW && form.originalAmount() == null ? form.startPrincipal()
 				: form.originalAmount();
 		LocalDateTime now = LocalDateTime.now(clock);
@@ -158,11 +158,7 @@ public class LoanService {
 				form.payDay(),
 				orElse(form.remainingPeriods(), loan.getRemainingPeriods()),
 				orElse(form.firstPeriod(), loan.getFirstPeriod()), form.dueDate());
-		// 換了扣款帳戶：只從當月起扣款，新帳戶的初始現金餘額日期只要不晚於當月 1 號（或起算日）
-		LocalDate monthStart = YearMonth.from(today()).atDay(1);
-		boolean sameAccount = Objects.equals(form.payAccountId(), loan.getPayAccountId());
-		LocalDate payFrom = sameAccount || monthStart.isBefore(merged.startDate()) ? merged.startDate() : monthStart;
-		validate(merged, payFrom);
+		validate(merged);
 		if (startChanged) {
 			loan.changeStart(merged.startDate(), merged.startPrincipal(), merged.remainingPeriods(),
 					merged.firstPeriod());
@@ -587,10 +583,9 @@ public class LoanService {
 
 	/**
 	 * 回傳轉成比率的年利率（2.5 → 0.025）。
-	 *
-	 * @param payAccountFrom 扣款帳戶從哪一天起要有錢（不能早於它的初始現金餘額日期）
+	 * 借款與它的現金異動照真實日期記；早於帳戶初始現金餘額日期的不影響餘額，所以不檢查帳戶起點（DR-047）。
 	 */
-	private BigDecimal validate(LoanForm form, LocalDate payAccountFrom) {
+	private BigDecimal validate(LoanForm form) {
 		validateBasics(form);
 		if (form.type() == null) {
 			throw new LoanValidationException("請選擇類型");
@@ -635,11 +630,9 @@ public class LoanService {
 		if (form.type() == LoanType.PLEDGE && form.dueDate() != null && form.dueDate().isBefore(form.startDate())) {
 			throw new LoanValidationException("到期日不能早於起算日");
 		}
-		Long payAccount = findMyAccount(form.payAccountId(), "請選擇扣款帳戶").getId();
-		checkNotBeforeOpening(payAccount, payAccountFrom);
+		findMyAccount(form.payAccountId(), "請選擇扣款帳戶");
 		if (form.origin() == LoanOrigin.NEW) {
-			Long disburse = findMyAccount(form.disburseAccountId(), "請選擇撥入帳戶").getId();
-			checkNotBeforeOpening(disburse, form.startDate());
+			findMyAccount(form.disburseAccountId(), "請選擇撥入帳戶");
 		}
 		else if (form.disburseAccountId() != null) {
 			throw new LoanValidationException("既有借款不用選撥入帳戶");
@@ -686,9 +679,7 @@ public class LoanService {
 			throw new LoanValidationException("日期不能晚於今天");
 		}
 		checkAmount(form.amount(), "金額");
-		Long accountId = findMyAccount(form.accountId(), "請選擇帳戶").getId();
-		checkNotBeforeOpening(accountId, form.date());
-		return accountId;
+		return findMyAccount(form.accountId(), "請選擇帳戶").getId();
 	}
 
 	private static void checkAmount(BigDecimal amount, String label) {
@@ -718,16 +709,6 @@ public class LoanService {
 			throw new LoanValidationException("年利率小數最多 4 位");
 		}
 		return percent.divide(HUNDRED, 6, RoundingMode.UNNECESSARY);
-	}
-
-	/** 日期不能早於帳戶的初始現金餘額日期（spec 4.6-3、設計文件 11-7）。 */
-	private void checkNotBeforeOpening(Long accountId, LocalDate date) {
-		Optional<LocalDate> opening = movements
-			.findByUserIdAndAccountIdAndTypeAndVoidedFalse(currentUser.id(), accountId, CashMovementType.OPENING)
-			.map(CashMovement::getMovementDate);
-		if (opening.isPresent() && date.isBefore(opening.get())) {
-			throw new LoanValidationException("日期不能早於這個帳戶的初始現金餘額日期（" + opening.get() + "）");
-		}
 	}
 
 	private CashAccount findMyAccount(Long accountId, String missingMessage) {
