@@ -138,6 +138,10 @@ class StockControllerTest {
 			.andExpect(content().string(containsString("0056 元大高股息")))
 			.andExpect(content().string(containsString("58,833")))
 			.andExpect(content().string(containsString("自有 15%、玉山質押 85%")));
+		mvc.perform(get("/funding"))
+			.andExpect(content().string(containsString("買進紀錄")))
+			.andExpect(content().string(containsString(">58.75<")))
+			.andExpect(content().string(containsString(">50,000<")));
 	}
 
 	/** 輸入錯誤留在表單並顯示原因；一次性代號還給使用者，修正後可以再送。 */

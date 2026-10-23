@@ -32,6 +32,11 @@ public final class StockMetricsCalculator {
 		return percent(marketValue.subtract(cost), cost);
 	}
 
+	/** 已經算好的損益占成本的比例（%，例如借款的投資報酬率 ＝ 投資賺到 ÷ 借款成本）；成本 0 時為 empty。 */
+	public static Optional<BigDecimal> gainPercent(BigDecimal gain, BigDecimal cost) {
+		return percent(gain, cost);
+	}
+
 	/** 含息總報酬率 ＝ (市值 ＋ 累計已領配息 − 成本) ÷ 成本。 */
 	public static Optional<BigDecimal> totalReturnPercent(BigDecimal marketValue, BigDecimal dividends, BigDecimal cost) {
 		return percent(marketValue.add(dividends).subtract(cost), cost);

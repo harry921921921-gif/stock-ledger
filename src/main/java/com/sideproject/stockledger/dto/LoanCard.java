@@ -15,7 +15,11 @@ import java.util.List;
  * @param nextAmount         下次扣款金額（信貸：本金＋利息；質押：預估利息）；已還清為 null
  * @param periodsLeft        信貸：還剩幾期（含下一期）；質押為 null
  * @param deployedIn         借來的錢現在在哪：各持股中這筆借款的金額（整數元）
+ * @param purchases          買進紀錄：用到這筆借款的期初持股與買進，新的在前
  * @param netGain            借款淨賺（spec 5.4）＝ 出資部分的帳面損益＋已實現損益＋配息 − 已付利息
+ * @param investGain         投資賺到 ＝ 這筆借款買的股票：帳面損益＋已實現損益＋分到的配息
+ * @param investReturnPercent 投資報酬率 ＝ 投資賺到 ÷ 目前還在股票裡的借款成本（%）；沒有成本為 null
+ * @param verdict            BEAT（淨賺 ≥ 0，賺贏利息）、BEHIND（還沒賺贏利息）、NOT_INVESTED（還沒拿去投資）
  * @param collateral         質押的擔保股票；信貸為空
  * @param maintenancePercent 維持率（%，到 0.01）；沒有擔保股票或已還清為 null
  * @param maintenanceLevel   OK、WARN（低於提醒線）、CALL（低於追繳線）；沒有維持率為 null
@@ -26,6 +30,8 @@ public record LoanCard(Long id, String name, String bank, String typeLabel, Stri
 		boolean pledge, BigDecimal originalAmount, BigDecimal remaining, BigDecimal ratePercent,
 		BigDecimal monthInterest, BigDecimal paidInterest, BigDecimal undeployed, LocalDate nextDue,
 		BigDecimal nextAmount, Integer periodsLeft, String payAccountName, boolean paidOff,
-		List<LoanHoldingLine> deployedIn, BigDecimal netGain, List<CollateralLine> collateral,
+		List<LoanHoldingLine> deployedIn, List<LoanPurchaseLine> purchases, BigDecimal netGain, BigDecimal investGain,
+		BigDecimal investReturnPercent,
+		String verdict, List<CollateralLine> collateral,
 		BigDecimal maintenancePercent, String maintenanceLevel, BigDecimal warnPercent, BigDecimal callPercent) {
 }

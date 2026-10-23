@@ -33,6 +33,7 @@ import com.sideproject.stockledger.dto.FundingView;
 import com.sideproject.stockledger.dto.LoanCard;
 import com.sideproject.stockledger.dto.LoanForm;
 import com.sideproject.stockledger.dto.LoanHoldingLine;
+import com.sideproject.stockledger.dto.LoanPurchaseLine;
 import com.sideproject.stockledger.dto.PrincipalForm;
 import com.sideproject.stockledger.dto.RateVersionForm;
 import com.sideproject.stockledger.entity.CashAccount;
@@ -421,8 +422,15 @@ public class LoanService {
 				unrealized = unrealized.add(loanShares.multiply(price).subtract(tag));
 			}
 		}
-		BigDecimal netGain = usage == null ? paidInterest.negate()
-				: unrealized.add(usage.realized()).add(usage.dividends()).subtract(paidInterest);
+		// 借款值不值得：投資賺到（帳面＋已實現＋配息）和已付利息比（spec 第 3 節第 4 頁；賺贏利息就算符合預期）
+		boolean invested = usage != null && (usage.deployed().signum() > 0 || usage.realized().signum() != 0
+				|| usage.dividends().signum() != 0);
+		BigDecimal investGain = usage == null ? BigDecimal.ZERO
+				: unrealized.add(usage.realized()).add(usage.dividends());
+		BigDecimal netGain = investGain.subtract(paidInterest);
+		BigDecimal investReturn = usage == null ? null
+				: StockMetricsCalculator.gainPercent(whole(investGain), usage.deployed()).orElse(null);
+		String verdict = !invested ? "NOT_INVESTED" : netGain.signum() >= 0 ? "BEAT" : "BEHIND";
 
 		List<CollateralLine> collateral = new ArrayList<>();
 		BigDecimal maintenance = null;
@@ -455,12 +463,13 @@ public class LoanService {
 				whole(loan.getOriginalAmount()), whole(remaining), percent(rate),
 				monthInterest.setScale(0, RoundingMode.HALF_UP), whole(paidInterest), whole(undeployed), nextDue,
 				nextAmount, periodsLeft, accountNames.getOrDefault(loan.getPayAccountId(), "—"), paidOff, deployedIn,
-				whole(netGain), collateral, maintenance, level, warn, call);
+				sc.purchases().getOrDefault(loan.getId(), List.of()),
+				whole(netGain), whole(investGain), investReturn, verdict, collateral, maintenance, level, warn, call);
 	}
 
 	/** 資金來源頁要用的股票資料：投資組合、股名、最新股價、各質押的擔保股票。 */
 	private record StockContext(Portfolio portfolio, Map<Long, Stock> stocks, Map<Long, BigDecimal> prices,
-			Map<Long, List<PledgeCollateral>> collateralByLoan) {
+			Map<Long, List<PledgeCollateral>> collateralByLoan, Map<Long, List<LoanPurchaseLine>> purchases) {
 
 		String code(Long stockId) {
 			return stocks.get(stockId).getCode();
@@ -481,7 +490,8 @@ public class LoanService {
 		byLoan.values().forEach(list -> list.forEach(c -> ids.add(c.getStockId())));
 		Map<Long, Stock> stockById = ids.isEmpty() ? Map.of()
 				: stocks.findByIdIn(new ArrayList<>(ids)).stream().collect(Collectors.toMap(Stock::getId, s -> s));
-		return new StockContext(portfolio, stockById, tradeService.latestPrices(ids), byLoan);
+		return new StockContext(portfolio, stockById, tradeService.latestPrices(ids), byLoan,
+				tradeService.purchasesByLoan());
 	}
 
 	/** 這筆質押某一天適用的維持率門檻（比率）；沒設定為 empty。 */

@@ -42,7 +42,7 @@
 
 		<p class="muted" th:if="${#lists.isEmpty(v.loans())}">還沒有借款。</p>
 
-		<p class="muted" th:unless="${#lists.isEmpty(v.loans())}">「尚未投入」是還沒拿去買股票的借款；買股票時在資金來源選這筆借款，就會從這裡扣掉。「借款淨賺」＝這筆借款買的股票帳面損益＋已實現損益＋配息 − 已付利息。</p>
+		<p class="muted" th:unless="${#lists.isEmpty(v.loans())}">「尚未投入」是還沒拿去買股票的借款；買股票時在資金來源選這筆借款，就會從這裡扣掉。「投資賺到」＝這筆借款買的股票帳面損益＋已實現損益＋配息；扣掉已付利息還是正的，就是「賺贏利息」。</p>
 
 		<section class="account-grid">
 			<div class="account-card" th:each="c : ${v.loans()}">
@@ -58,7 +58,6 @@
 					<dt>本月利息</dt><dd th:text="${@money.plain(c.monthInterest())}">834</dd>
 					<dt>累計已付利息</dt><dd th:text="${@money.plain(c.paidInterest())}">0</dd>
 					<dt>尚未投入</dt><dd th:text="${@money.plain(c.undeployed())}">400,000</dd>
-					<dt>借款淨賺</dt><dd th:text="${@money.signed(c.netGain())}" th:classappend="${c.netGain().signum() < 0} ? 'negative' : ''">+992</dd>
 					<th:block th:if="${c.credit() and c.nextDue() != null}">
 						<dt>下次扣款</dt><dd th:text="|${c.nextDue()}，${@money.plain(c.nextAmount())} 元（剩 ${c.periodsLeft()} 期）|">2026-11-05，7,099 元（剩 60 期）</dd>
 					</th:block>
@@ -67,6 +66,20 @@
 					</th:block>
 					<dt>扣款帳戶</dt><dd th:text="${c.payAccountName()}">土銀帳戶</dd>
 				</dl>
+				<!-- 借款值不值得：投資賺到和已付利息比，賺贏利息就算符合預期（2026-10-23 使用者決定） -->
+				<div class="worth" th:classappend="|worth-${#strings.toLowerCase(c.verdict())}|">
+					<p class="worth-verdict" th:switch="${c.verdict()}">
+						<span th:case="'BEAT'">✓ 賺贏利息</span>
+						<span th:case="'BEHIND'">✗ 還沒賺贏利息</span>
+						<span th:case="*">還沒拿去投資</span>
+					</p>
+					<dl class="loan-facts" th:unless="${c.verdict() == 'NOT_INVESTED'}">
+						<dt>投資賺到</dt><dd th:text="${@money.signed(c.investGain())}">+9,011</dd>
+						<dt>已付利息</dt><dd th:text="${c.paidInterest().signum() == 0} ? 0 : |−${@money.plain(c.paidInterest())}|">−3,144</dd>
+						<dt>借款淨賺</dt><dd class="worth-net" th:text="${@money.signed(c.netGain())}">+5,867</dd>
+						<dt>投資報酬率</dt><dd th:text="${c.investReturnPercent() != null} ? |${c.investReturnPercent()}%| : '—'">9.21%</dd>
+					</dl>
+				</div>
 				<th:block th:unless="${#lists.isEmpty(c.deployedIn())}">
 					<p class="muted card-subtitle">借來的錢現在在哪</p>
 					<dl class="loan-facts">
@@ -74,6 +87,21 @@
 							<dt th:text="${line.label()}">0056 元大高股息</dt><dd th:text="${@money.plain(line.amount())}">50,000</dd>
 						</th:block>
 					</dl>
+				</th:block>
+				<th:block th:unless="${#lists.isEmpty(c.purchases())}">
+					<p class="muted card-subtitle">買進紀錄</p>
+					<table class="table purchase-table">
+						<thead><tr><th>日期</th><th>股票</th><th class="num">股數</th><th class="num">買價</th><th class="num">借款出</th></tr></thead>
+						<tbody>
+						<tr th:each="p : ${c.purchases()}">
+							<td><a th:href="@{/stocks/trades/{id}/edit(id=${p.tradeId()})}" th:text="${p.date()}">2026-02-01</a></td>
+							<td th:text="${p.code()}" th:title="${p.label()}">0050</td>
+							<td class="num" th:text="${#numbers.formatInteger(p.shares(), 1, 'COMMA')}">1,000</td>
+							<td class="num" th:text="${p.price() != null} ? ${#numbers.formatDecimal(p.price(), 1, 'COMMA', 2, 'POINT')} : '—'">97.75</td>
+							<td class="num" th:text="${@money.plain(p.loanAmount())}">97,889</td>
+						</tr>
+						</tbody>
+					</table>
 				</th:block>
 				<th:block th:if="${c.pledge()}">
 					<p class="muted card-subtitle">擔保股票與維持率</p>

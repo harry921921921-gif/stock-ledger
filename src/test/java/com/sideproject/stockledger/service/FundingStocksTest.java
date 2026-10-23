@@ -150,6 +150,50 @@ class FundingStocksTest {
 		assertThat(card().netGain()).isEqualByComparingTo(new BigDecimal("992").subtract(paidInterest));
 	}
 
+	/**
+	 * 借款值不值得：投資賺到 992、借款成本 50,000 → 投資報酬率 1.98%；淨賺 ≥ 0 → 賺贏利息。
+	 * 還沒拿去買股票的借款 → 還沒拿去投資（2026-10-23 使用者決定：賺贏利息就算符合預期）。
+	 */
+	@Test
+	void worthIt() {
+		assertThat(card().verdict()).isEqualTo("NOT_INVESTED");
+		assertThat(card().investReturnPercent()).isNull();
+
+		trades.create(buyWithLoan(50000));
+		jdbc.update("DELETE FROM cash_movement WHERE loan_id = ? AND type = 'LOAN_INTEREST'", pledge.getId());
+
+		LoanCard c = card();
+		assertThat(c.investGain()).isEqualByComparingTo("992");
+		assertThat(c.investReturnPercent()).isEqualByComparingTo("1.98");
+		assertThat(c.verdict()).isEqualTo("BEAT");
+
+		jdbc.update("INSERT INTO cash_movement (user_id, type, movement_date, account_id, amount, voided, created_at, "
+				+ "loan_id, period) SELECT user_id, 'LOAN_INTEREST', ?, ?, 1000, FALSE, NOW(), id, ? FROM loan WHERE id = ?",
+				today, settlement, today.withDayOfMonth(1), pledge.getId());
+		assertThat(card().netGain()).isEqualByComparingTo("-8");
+		assertThat(card().verdict()).isEqualTo("BEHIND");
+	}
+
+	/** 買進紀錄：每一筆用到這筆借款的買進一列（日期、股票、股數、買價、借款出的錢），新的在前；作廢的不列。 */
+	@Test
+	void purchaseLines() {
+		trades.create(buyWithLoan(50000));
+		Long voided = trades.create(buyWithLoan(10000)).getId();
+		trades.voidTrade(voided, "記錯");
+		trades.create(new TradeForm(TradeType.BUY, today, "0056", settlement, 500L, new BigDecimal("59"), null, null,
+				null, List.of(new AllocationLine(pledge.getId(), new BigDecimal("20000")))));
+
+		assertThat(card().purchases()).hasSize(2);
+		assertThat(card().purchases().get(1)).satisfies(line -> {
+			assertThat(line.date()).isEqualTo(today);
+			assertThat(line.label()).isEqualTo("0056 元大高股息");
+			assertThat(line.shares()).isEqualTo(1000L);
+			assertThat(line.price()).isEqualByComparingTo("58.75");
+			assertThat(line.loanAmount()).isEqualByComparingTo("50000");
+		});
+		assertThat(card().purchases().get(0).loanAmount()).isEqualByComparingTo("20000");
+	}
+
 	/** 擔保股票與維持率：1000 股 × 60 ＝ 60,000 ÷ 400,000 ＝ 15% → 低於追繳線（預設 150%、130%）。 */
 	@Test
 	void collateralAndMaintenance() {

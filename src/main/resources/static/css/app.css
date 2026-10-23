@@ -10,6 +10,7 @@
 	--error-bg: #fdecec;
 	--error-text: #b42318;
 	--success-text: #0b7a47;
+	--success-bg: #e7f6ee;
 	--info-bg: #eaf2fd;
 	--info-text: #174a96;
 	--warning-bg: #fff4e0;
@@ -209,9 +210,19 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 .card-actions { margin: 8px 0 0; }
 .card-subtitle { margin: 12px 0 0; font-size: 0.9em; }
 .card-details { margin: 8px 0 0; }
+.purchase-table { margin-top: 4px; font-size: 0.9em; }
+.purchase-table th, .purchase-table td { padding: 6px 8px; white-space: nowrap; }
 .card-details summary { cursor: pointer; color: var(--muted); }
 .card-details .inline-form { flex-wrap: wrap; margin-top: 8px; }
 .card-details .inline-form input { width: 140px; }
 .maintenance-ok { color: var(--success-text); }
+/* 借款值不值得：綠＝賺贏利息、紅＝還沒賺贏、灰＝還沒拿去投資 */
+.worth { margin: 12px 0 0; padding: 8px 12px; border-radius: var(--radius); background: var(--bg); }
+.worth .loan-facts { margin: 4px 0 0; }
+.worth-verdict { margin: 0; font-weight: 600; color: var(--muted); }
+.worth-beat { background: var(--success-bg); }
+.worth-beat .worth-verdict, .worth-beat .worth-net { color: var(--success-text); }
+.worth-behind { background: var(--error-bg); }
+.worth-behind .worth-verdict, .worth-behind .worth-net { color: var(--error-text); }
 .maintenance-warn { color: var(--warning-text); font-weight: 600; }
 .maintenance-call { color: var(--error-text); font-weight: 600; }

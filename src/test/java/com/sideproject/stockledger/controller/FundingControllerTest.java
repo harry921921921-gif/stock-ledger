@@ -161,7 +161,7 @@ class FundingControllerTest {
 		mvc.perform(get("/funding"))
 			.andExpect(content().string(containsString("擔保股票與維持率")))
 			.andExpect(content().string(containsString("150% ／ 130%")))
-			.andExpect(content().string(containsString("借款淨賺")));
+			.andExpect(content().string(containsString("還沒拿去投資")));
 
 		mvc.perform(post("/funding/{id}/thresholds", loan).with(csrf()).param("warnPercent", "160")
 				.param("callPercent", "140"))

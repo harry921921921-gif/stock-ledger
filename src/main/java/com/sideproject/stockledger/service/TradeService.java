@@ -35,6 +35,7 @@ import com.sideproject.stockledger.dto.AllocationLine;
 import com.sideproject.stockledger.dto.DividendForm;
 import com.sideproject.stockledger.dto.DividendSuggestion;
 import com.sideproject.stockledger.dto.HoldingRow;
+import com.sideproject.stockledger.dto.LoanPurchaseLine;
 import com.sideproject.stockledger.dto.SaleRow;
 import com.sideproject.stockledger.dto.StocksView;
 import com.sideproject.stockledger.dto.TradeForm;
@@ -455,6 +456,34 @@ public class TradeService {
 	/** 讀出目前登入者的所有交易、配息、借款流量，算出投資組合。 */
 	private Portfolio portfolioOf(Long userId) {
 		return portfolioReader.read(userId);
+	}
+
+	/** 每筆借款的買進紀錄（借款 id → 用到它的期初持股與買進，新的在前；作廢的不列）。 */
+	@Transactional(readOnly = true)
+	public Map<Long, List<LoanPurchaseLine>> purchasesByLoan() {
+		Long userId = currentUser.id();
+		Map<Long, Trade> active = trades.findByUserIdAndVoidedFalse(userId).stream()
+			.collect(Collectors.toMap(Trade::getId, t -> t));
+		List<SourceAllocation> used = allocations.findByUserId(userId).stream()
+			.filter(a -> active.containsKey(a.getTradeId()))
+			.toList();
+		if (used.isEmpty()) {
+			return Map.of();
+		}
+		Map<Long, Stock> stockById = stocks
+			.findByIdIn(used.stream().map(a -> active.get(a.getTradeId()).getStockId()).distinct().toList())
+			.stream()
+			.collect(Collectors.toMap(Stock::getId, s -> s));
+		Comparator<LoanPurchaseLine> newestFirst = Comparator.comparing(LoanPurchaseLine::date)
+			.thenComparing(LoanPurchaseLine::tradeId)
+			.reversed();
+		return used.stream().collect(Collectors.groupingBy(SourceAllocation::getLoanId, Collectors.collectingAndThen(
+				Collectors.mapping(a -> {
+					Trade t = active.get(a.getTradeId());
+					Stock s = stockById.get(t.getStockId());
+					return new LoanPurchaseLine(t.getId(), t.getTradeDate(), s.getCode(), s.getCode() + " " + s.getName(),
+							t.getShares(), t.getPrice() == null ? null : trim(t.getPrice()), whole(a.getAmount()));
+				}, Collectors.toList()), list -> list.stream().sorted(newestFirst).toList())));
 	}
 
 	/** 一檔持股的價值（總資產與資產配置排行用）。 */

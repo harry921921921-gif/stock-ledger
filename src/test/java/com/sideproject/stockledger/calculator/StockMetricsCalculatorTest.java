@@ -9,6 +9,16 @@ import org.junit.jupiter.api.Test;
 /** 報酬率、二代健保、預估配息、維持率（spec 5.2、5.4、5.5、5.6）。 */
 class StockMetricsCalculatorTest {
 
+	/** 借款的投資報酬率 ＝ 投資賺到 ÷ 借款成本：9,011 ÷ 97,889 ＝ 9.205…% → 9.21%；成本 0 為 empty。 */
+	@Test
+	void gainPercent() {
+		assertThat(StockMetricsCalculator.gainPercent(new BigDecimal("9011"), new BigDecimal("97889")))
+			.hasValue(new BigDecimal("9.21"));
+		assertThat(StockMetricsCalculator.gainPercent(new BigDecimal("-500"), new BigDecimal("10000")))
+			.hasValue(new BigDecimal("-5.00"));
+		assertThat(StockMetricsCalculator.gainPercent(BigDecimal.TEN, BigDecimal.ZERO)).isEmpty();
+	}
+
 	@Test
 	void stockReturnAndTotalReturn() {
 		// 市值 58,750、成本 50,000 → 17.50%；加上配息 1,720 → 20.94%
