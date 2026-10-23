@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * 信貸本息平均攤還（spec 4.8、5.3、DR-018、設計文件 4、11-1、11-4）。純 Java、不依賴 Spring。
@@ -41,9 +42,17 @@ public final class InstallmentCalculator {
 	 * @param rates            利率版本（至少一個生效日 ≤ 第一期扣款日）
 	 * @param prepayments      提前還本（delta 為負），日期早於某期扣款日的，從那一期起生效
 	 * @param posted           已經記下的期數
+	 * @param payments         銀行每月扣款金額的版本（DR-048）；空清單＝照公式算月付金（DR-018）
 	 */
 	public record Input(BigDecimal startPrincipal, int remainingPeriods, YearMonth firstPeriod, int payDay,
-			List<RateChange> rates, List<PrincipalChange> prepayments, Map<YearMonth, Posted> posted) {
+			List<RateChange> rates, List<PrincipalChange> prepayments, Map<YearMonth, Posted> posted,
+			List<PaymentChange> payments) {
+
+		/** V11 以前的借款：沒有銀行扣款版本，月付金照公式算。 */
+		public Input(BigDecimal startPrincipal, int remainingPeriods, YearMonth firstPeriod, int payDay,
+				List<RateChange> rates, List<PrincipalChange> prepayments, Map<YearMonth, Posted> posted) {
+			this(startPrincipal, remainingPeriods, firstPeriod, payDay, rates, prepayments, posted, List.of());
+		}
 
 		public Input {
 			Objects.requireNonNull(startPrincipal, "startPrincipal");
@@ -51,6 +60,7 @@ public final class InstallmentCalculator {
 			Objects.requireNonNull(rates, "rates");
 			Objects.requireNonNull(prepayments, "prepayments");
 			Objects.requireNonNull(posted, "posted");
+			Objects.requireNonNull(payments, "payments");
 			if (remainingPeriods < 1) {
 				throw new IllegalArgumentException("剩餘期數至少 1 期");
 			}
@@ -111,10 +121,19 @@ public final class InstallmentCalculator {
 			}
 			currentRate = rate;
 			int left = total - number + 1;
-			if (recalc) {
+			BigDecimal interest = monthlyInterest(remaining, rate);
+			Optional<BigDecimal> bank = PaymentChange.amountOn(in.payments(), due);
+			if (bank.isPresent()) {
+				// 以銀行實際扣款為準（DR-048）：只用利率拆出利息，其餘是本金
+				payment = bank.get();
+				if (left > 1 && payment.compareTo(interest) < 0) {
+					throw new IllegalArgumentException("每月扣款 " + payment.stripTrailingZeros().toPlainString() + " 元比當期利息 "
+							+ interest.toPlainString() + " 元少");
+				}
+			}
+			else if (recalc) {
 				payment = monthlyPayment(remaining, rate, left);
 			}
-			BigDecimal interest = monthlyInterest(remaining, rate);
 			BigDecimal principal = left == 1 ? remaining : payment.subtract(interest).min(remaining);
 			Posted posted = in.posted().get(period);
 			if (posted != null) {

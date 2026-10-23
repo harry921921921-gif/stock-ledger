@@ -36,6 +36,8 @@ import com.sideproject.stockledger.entity.CashMovement;
 import com.sideproject.stockledger.entity.Loan;
 import com.sideproject.stockledger.entity.LoanOrigin;
 import com.sideproject.stockledger.entity.LoanType;
+import com.sideproject.stockledger.entity.RateSetting;
+import com.sideproject.stockledger.entity.RepaymentMethod;
 import com.sideproject.stockledger.entity.Role;
 import com.sideproject.stockledger.repository.AppUserRepository;
 import com.sideproject.stockledger.security.AppUserDetailsService;
@@ -57,6 +59,12 @@ class LoanServiceTest {
 
 	@Autowired
 	private TotalAssetsService totalAssets;
+
+	@Autowired
+	private com.sideproject.stockledger.repository.LoanRepository loanRepository;
+
+	@Autowired
+	private com.sideproject.stockledger.repository.RateSettingRepository rateRepository;
 
 	@Autowired
 	private AppUserRepository users;
@@ -302,6 +310,24 @@ class LoanServiceTest {
 				null, null, null));
 
 		assertThat(service.accruedInterest(thisMonth)).isEqualByComparingTo("33");
+	}
+
+	/**
+	 * 到期一次還本金＋利息（DR-048）：一般借款（不是質押）也可以。每月只算應計利息：
+	 * 本月 1 號到今天（含）的天數 × 10 萬 × 4% ÷ 365，四捨五入到元。
+	 */
+	@Test
+	void bulletAccruesMonthly() {
+		Loan loan = loanRepository.save(Loan.create(users.findByUsername("ln-amy").orElseThrow().getId(), "親友借款", LoanType.CREDIT, RepaymentMethod.BULLET,
+				"親友", new BigDecimal("100000"), LoanOrigin.EXISTING, today.minusMonths(3), new BigDecimal("100000"),
+				null, settlement, 28, null, null, today.plusYears(1), LocalDateTime.now(clock)));
+		rateRepository.save(RateSetting.loanRate(loan.getUserId(), loan.getId(), new BigDecimal("0.04"), today.minusMonths(3),
+				LocalDateTime.now(clock)));
+
+		long days = today.getDayOfMonth();
+		assertThat(service.accruedInterest(thisMonth)).isEqualByComparingTo(new BigDecimal("100000")
+			.multiply(new BigDecimal("0.04")).multiply(BigDecimal.valueOf(days))
+			.divide(BigDecimal.valueOf(365), 0, java.math.RoundingMode.HALF_UP));
 	}
 
 	/** 借款的異動只能改日期與金額，並寫修改紀錄（spec 4.9）。 */

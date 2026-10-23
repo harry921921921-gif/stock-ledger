@@ -122,9 +122,9 @@ class StockSchemaTest {
 	void allocationBelongsToOwner() {
 		Long buy = trade("BUY", account, 1000, "58.75", "23", null, "58773");
 		Long othersAccount = insertAccount(otherUserId, "別人的");
-		jdbc.update("INSERT INTO loan (user_id, name, loan_type, bank, original_amount, origin, start_date, "
+		jdbc.update("INSERT INTO loan (user_id, name, loan_type, repayment_method, bank, original_amount, origin, start_date, "
 				+ "start_principal, pay_account_id, pay_day, posting_from, created_at) VALUES (?, '別人的', 'PLEDGE', "
-				+ "'銀行', 1000, 'EXISTING', '2026-10-01', 1000, ?, 25, '2026-10-01', NOW())", otherUserId, othersAccount);
+				+ "'INTEREST_ONLY', '銀行', 1000, 'EXISTING', '2026-10-01', 1000, ?, 25, '2026-10-01', NOW())", otherUserId, othersAccount);
 		Long othersLoan = jdbc.queryForObject("SELECT MAX(id) FROM loan", Long.class);
 
 		assertThatThrownBy(() -> jdbc.update("INSERT INTO source_allocation (trade_id, user_id, loan_id, amount) "
@@ -136,9 +136,9 @@ class StockSchemaTest {
 
 	@Test
 	void collateralUniquePerLoanAndStock() {
-		jdbc.update("INSERT INTO loan (user_id, name, loan_type, bank, original_amount, origin, start_date, "
+		jdbc.update("INSERT INTO loan (user_id, name, loan_type, repayment_method, bank, original_amount, origin, start_date, "
 				+ "start_principal, pay_account_id, pay_day, posting_from, created_at) VALUES (?, '質押', 'PLEDGE', "
-				+ "'銀行', 1000, 'EXISTING', '2026-10-01', 1000, ?, 25, '2026-10-01', NOW())", userId, account);
+				+ "'INTEREST_ONLY', '銀行', 1000, 'EXISTING', '2026-10-01', 1000, ?, 25, '2026-10-01', NOW())", userId, account);
 		Long loan = jdbc.queryForObject("SELECT MAX(id) FROM loan", Long.class);
 		jdbc.update("INSERT INTO pledge_collateral (user_id, loan_id, stock_id, shares) VALUES (?, ?, ?, 15000)", userId,
 				loan, stock);

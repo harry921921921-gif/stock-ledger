@@ -34,6 +34,7 @@ import com.sideproject.stockledger.entity.Loan;
 import com.sideproject.stockledger.entity.LoanOrigin;
 import com.sideproject.stockledger.entity.LoanType;
 import com.sideproject.stockledger.entity.RateSetting;
+import com.sideproject.stockledger.entity.RepaymentMethod;
 import com.sideproject.stockledger.entity.Role;
 import com.sideproject.stockledger.repository.AppUserRepository;
 import com.sideproject.stockledger.repository.CashMovementRepository;
@@ -179,6 +180,16 @@ class LoanPostingServiceTest {
 			.containsExactly(tuple("LOAN_INTEREST", "2026-10-25", "2026-10-01", "987"));
 	}
 
+	/** 到期一次還本金＋利息（DR-048）：平常不自動記任何利息，帳戶不扣錢。 */
+	@Test
+	void bulletPostsNothing() {
+		Loan loan = bullet(amyId, bank, "2026-07-28", "2027-07-28");
+
+		posting.postDue(loan, LocalDate.parse("2026-10-25"));
+
+		assertThat(rows(loan)).isEmpty();
+	}
+
 	/** 下一期的計息起點用上一筆實際繳息的日期（使用者改過日期也一樣）。 */
 	@Test
 	void pledgeUsesLastActualPaymentDate() {
@@ -288,6 +299,15 @@ class LoanPostingServiceTest {
 				LoanOrigin.EXISTING, LocalDate.parse(start), new BigDecimal("400000"), null, account, 25, null, null,
 				null, LocalDateTime.now(clock)));
 		rates.save(RateSetting.loanRate(user, loan.getId(), new BigDecimal("0.03"), LocalDate.parse(start),
+				LocalDateTime.now(clock)));
+		return loan;
+	}
+
+	private Loan bullet(Long user, Long account, String start, String due) {
+		Loan loan = loans.save(Loan.create(user, "玉山質押", LoanType.PLEDGE, RepaymentMethod.BULLET, "玉山銀行",
+				new BigDecimal("100000"), LoanOrigin.EXISTING, LocalDate.parse(start), new BigDecimal("100000"), null,
+				account, 28, null, null, LocalDate.parse(due), LocalDateTime.now(clock)));
+		rates.save(RateSetting.loanRate(user, loan.getId(), new BigDecimal("0.04"), LocalDate.parse(start),
 				LocalDateTime.now(clock)));
 		return loan;
 	}

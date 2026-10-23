@@ -39,6 +39,10 @@ public class Loan {
 	@Column(name = "loan_type", nullable = false, length = 10, updatable = false)
 	private LoanType type;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "repayment_method", nullable = false, length = 20, updatable = false)
+	private RepaymentMethod repaymentMethod;
+
 	@Column(nullable = false, length = 50)
 	private String bank;
 
@@ -89,20 +93,31 @@ public class Loan {
 		// JPA 需要
 	}
 
-	/** 檢查由 LoanService 負責（訊息要中文）；這裡只保證類型相關的欄位一致，資料庫另有 CHECK。 */
+	/** V11 以前的呼叫方式：還款方式照類型對應（信貸每月固定還款、質押每月繳息）。 */
 	public static Loan create(Long userId, String name, LoanType type, String bank, BigDecimal originalAmount,
 			LoanOrigin origin, LocalDate startDate, BigDecimal startPrincipal, Long disburseAccountId,
 			Long payAccountId, int payDay, Integer remainingPeriods, YearMonth firstPeriod, LocalDate dueDate,
 			LocalDateTime now) {
+		return create(userId, name, type, RepaymentMethod.legacyOf(type), bank, originalAmount, origin, startDate,
+				startPrincipal, disburseAccountId, payAccountId, payDay, remainingPeriods, firstPeriod, dueDate, now);
+	}
+
+	/** 檢查由 LoanService 負責（訊息要中文）；這裡只保證還款方式相關的欄位一致，資料庫另有 CHECK（ck_loan_method）。 */
+	public static Loan create(Long userId, String name, LoanType type, RepaymentMethod method, String bank,
+			BigDecimal originalAmount, LoanOrigin origin, LocalDate startDate, BigDecimal startPrincipal,
+			Long disburseAccountId, Long payAccountId, int payDay, Integer remainingPeriods, YearMonth firstPeriod,
+			LocalDate dueDate, LocalDateTime now) {
 		Loan loan = new Loan();
 		loan.userId = userId;
 		loan.type = type;
+		loan.repaymentMethod = method;
 		loan.origin = origin;
 		loan.startDate = startDate;
 		loan.startPrincipal = startPrincipal;
 		loan.disburseAccountId = origin == LoanOrigin.NEW ? disburseAccountId : null;
-		loan.remainingPeriods = type == LoanType.CREDIT ? remainingPeriods : null;
-		loan.firstPeriod = type == LoanType.CREDIT && firstPeriod != null ? firstPeriod.atDay(1) : null;
+		boolean monthly = method == RepaymentMethod.MONTHLY_FIXED;
+		loan.remainingPeriods = monthly ? remainingPeriods : null;
+		loan.firstPeriod = monthly && firstPeriod != null ? firstPeriod.atDay(1) : null;
 		loan.postingFrom = YearMonth.from(startDate).atDay(1);
 		loan.createdAt = now;
 		loan.name = CashAccount.normalizeName(name);
@@ -110,7 +125,7 @@ public class Loan {
 		loan.originalAmount = originalAmount;
 		loan.payAccountId = payAccountId;
 		loan.payDay = payDay;
-		loan.dueDate = type == LoanType.PLEDGE ? dueDate : null;
+		loan.dueDate = monthly ? null : dueDate;
 		return loan;
 	}
 
@@ -128,7 +143,7 @@ public class Loan {
 		this.originalAmount = originalAmount;
 		this.payAccountId = payAccountId;
 		this.payDay = payDay;
-		this.dueDate = type == LoanType.PLEDGE ? dueDate : null;
+		this.dueDate = repaymentMethod == RepaymentMethod.MONTHLY_FIXED ? null : dueDate;
 	}
 
 	/** 改起點：只有既有借款、還沒有任何異動時呼叫（由 LoanService 檢查）。記帳起點跟著移到新的起算月份。 */
@@ -170,6 +185,10 @@ public class Loan {
 
 	public LoanType getType() {
 		return type;
+	}
+
+	public RepaymentMethod getRepaymentMethod() {
+		return repaymentMethod;
 	}
 
 	public String getBank() {

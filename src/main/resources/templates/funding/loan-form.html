@@ -8,13 +8,14 @@
 	<script th:src="@{/js/app.js}" defer></script>
 </head>
 <body>
+<!-- 依樣稿 docs/superpowers/mockups/loan-form.html（spec 4.8a、DR-048）。只負責顯示，規則都在 LoanService 檢查。 -->
 <div class="app">
 	<aside th:replace="~{fragments/layout :: sidebar('funding')}"></aside>
 	<main class="content">
 		<p class="breadcrumb"><a th:href="@{/funding}">資金來源</a></p>
 		<h1 th:text="${loanId == null} ? '新增借款' : '修改借款'">新增借款</h1>
-		<p class="muted" th:if="${loanId == null}">照借款合約填：撥款日、借款金額、利率、期數。系統會從撥款日起記撥款和每一期的還本、利息，開始用系統以前借的也一樣照真實日期填（比帳戶初始現金餘額日期早的紀錄不影響帳戶餘額）。</p>
-		<p class="muted" th:if="${loanId != null}">類型不能改；撥款日、金額、期數、第一期只有還沒開始記帳時可以改。利率請用「新增利率」。</p>
+		<p class="muted" th:if="${loanId == null}">照借款合約和銀行實際扣款填，撥款日照真實日期（比帳戶初始現金餘額日期早的紀錄不影響帳戶餘額）。系統以你填的扣款金額為準，只用利率把它拆成本金和利息。</p>
+		<p class="muted" th:if="${loanId != null}">還款方式與類型不能改；撥款日、金額、期數只有還沒開始記帳時可以改。利率請用「新增利率」，到期展延就改到期日。</p>
 
 		<p class="muted" th:if="${#lists.isEmpty(myAccounts)}">還沒有現金帳戶，請先<a th:href="@{/settings/accounts/new}">新增帳戶</a>。</p>
 
@@ -29,15 +30,100 @@
 			<label for="bank">銀行</label>
 			<input id="bank" type="text" th:field="*{bank}" maxlength="50" placeholder="例如：土地銀行" required>
 
+			<!-- ===================== 新增：先選還款方式 ===================== -->
 			<th:block th:if="${loanId == null}">
-				<label for="type">類型</label>
-				<select id="type" th:field="*{type}">
-					<option th:each="t : ${loanTypes}" th:value="${t}" th:text="${t.label()}">信貸</option>
-				</select>
+				<input type="hidden" name="origin" value="NEW">
 
-				<!-- v1.9 起新增借款一律照撥款日記錄（DR-047），不再選方式 -->
-				<input type="hidden" id="origin" name="origin" value="NEW">
+				<p class="label-text">還款方式</p>
+				<div class="method-group">
+					<label class="method" th:each="m : ${repaymentMethods}">
+						<input type="radio" th:field="*{repaymentMethod}" th:value="${m}">
+						<span><strong th:text="${m.label()}">每月固定還款</strong>
+							<small th:switch="${m.name()}">
+								<span th:case="'MONTHLY_FIXED'">每月扣一筆，裡面有本金和利息（一般信貸、房貸）</span>
+								<span th:case="'BULLET'">平常不用繳，到期一次付清（例如股票質押）</span>
+								<span th:case="*">每月只繳利息，本金到期才還</span>
+							</small></span>
+					</label>
+				</div>
+
+				<label class="checkbox-line"><input type="checkbox" name="pledge" value="true"
+						th:checked="*{type?.name() == 'PLEDGE'}"> 這是股票質押（要設定擔保股票、看維持率）</label>
+
+				<label for="startDate">撥款日</label>
+				<input id="startDate" type="date" th:field="*{startDate}" required>
+
+				<label for="startPrincipal">借款金額</label>
+				<input id="startPrincipal" type="text" inputmode="numeric" th:field="*{startPrincipal}" placeholder="整數元" required>
+
+				<label for="annualRatePercent">年利率（%）</label>
+				<input id="annualRatePercent" type="text" inputmode="decimal" th:field="*{annualRatePercent}" placeholder="例如 2.15" required>
+
+				<div data-show-source="repaymentMethod" data-show-for="MONTHLY_FIXED">
+					<p class="muted">用來把每月扣款拆成本金和利息。</p>
+					<label for="monthlyPayment">每月扣款金額（照銀行）</label>
+					<input id="monthlyPayment" type="text" inputmode="numeric" th:field="*{monthlyPayment}" placeholder="例如 5133">
+					<p class="muted">存好後，系統會用金額、利率、期數算一次合約月付金；差超過 1 元會提醒你確認（不會擋下）。</p>
+
+					<label for="payDay">每月扣款日</label>
+					<input id="payDay" type="number" min="1" max="31" th:field="*{payDay}" placeholder="幾號（1～31）">
+
+					<label for="remainingPeriods">總期數</label>
+					<input id="remainingPeriods" type="number" min="1" max="600" th:field="*{remainingPeriods}" placeholder="7 年就是 84 期">
+					<p class="muted">第一期是撥款日之後的第一個扣款日。</p>
+				</div>
+
+				<div data-show-source="repaymentMethod" data-show-for="INTEREST_ONLY">
+					<label for="interestDay">每月繳息日</label>
+					<input id="interestDay" type="number" min="1" max="31" name="payDay" th:value="*{payDay}" placeholder="幾號（1～31）">
+				</div>
+
+				<div data-show-source="repaymentMethod" data-show-for="BULLET INTEREST_ONLY">
+					<p class="muted">年利率用來估到期要付多少利息、每個月的應計利息。</p>
+					<label for="dueDate">到期日</label>
+					<input id="dueDate" type="date" th:field="*{dueDate}">
+				</div>
+
+				<label for="payAccountId">往來帳戶</label>
+				<select id="payAccountId" th:field="*{payAccountId}">
+					<option value="">請選擇</option>
+					<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">土銀帳戶</option>
+				</select>
+				<p class="muted">撥款進這個帳戶，也從這個帳戶扣款。</p>
+
+				<label for="fee">開辦費、手續費（選填）</label>
+				<input id="fee" type="text" inputmode="numeric" th:field="*{fee}" placeholder="例如 3000">
+				<p class="muted">記在撥款日，算進借錢的成本，「賺贏利息」會一起扣。</p>
+
+				<div class="collateral-box" data-show-source="pledge" data-show-for="true">
+					<p class="label-text">擔保股票（勾選拿去質押的持股）</p>
+					<p class="muted" th:if="${#lists.isEmpty(myHoldings)}">還沒有持股，先到股票頁記好股票，存好借款後再到資金來源頁設定擔保。</p>
+					<th:block th:unless="${#lists.isEmpty(myHoldings)}">
+						<p class="muted">勾了就是全部持股都拿去擔保；只押一部分就把股數改小，不能超過持股。</p>
+						<table class="table collateral-table">
+							<thead><tr><th></th><th>股票</th><th class="num">擔保股數</th><th class="num">收盤價</th></tr></thead>
+							<tbody>
+							<tr th:each="h, iter : ${myHoldings}">
+								<td><input type="checkbox" th:name="|collateral[${iter.index}].stockId|" th:value="${h.stockId()}"
+										th:attr="aria-label=|拿 ${h.label()} 去擔保|"></td>
+								<td th:title="${h.label()}"><span th:text="${h.label()}">00830 國泰費城半導體</span><br>
+									<small class="muted" th:text="|持有 ${#numbers.formatInteger(h.shares(), 1, 'COMMA')}|">持有 1,000</small></td>
+								<td class="num"><input type="number" min="1" th:max="${h.shares()}" th:name="|collateral[${iter.index}].shares|"
+										th:value="${h.shares()}" th:attr="aria-label=|${h.label()} 的擔保股數|"></td>
+								<td class="num" th:text="${h.price() != null} ? ${#numbers.formatDecimal(h.price(), 1, 'COMMA', 2, 'POINT')} : '—'">80.90</td>
+							</tr>
+							</tbody>
+						</table>
+					</th:block>
+					<div class="threshold-row">
+						<label>提醒線（%）<input type="number" min="1" max="1000" step="0.01" th:field="*{warnPercent}" placeholder="150"></label>
+						<label>追繳線（%）<input type="number" min="1" max="1000" step="0.01" th:field="*{callPercent}" placeholder="130"></label>
+					</div>
+					<p class="muted">維持率 ＝ 擔保股票市值 ÷ 剩餘本金，存好後顯示在資金來源頁。</p>
+				</div>
 			</th:block>
+
+			<!-- ===================== 修改 ===================== -->
 			<th:block th:if="${loanId != null}">
 				<p>
 					<span class="label-text">類型</span> <span th:text="*{type} != null ? *{type.label()} : '—'">信貸</span>
@@ -45,55 +131,40 @@
 				</p>
 				<input type="hidden" th:field="*{type}">
 				<input type="hidden" id="origin" th:field="*{origin}">
-			</th:block>
 
-			<div data-show-source="origin" data-show-for="EXISTING">
-				<label for="originalAmount">原始借款金額</label>
-				<input id="originalAmount" type="text" inputmode="numeric" th:field="*{originalAmount}" placeholder="整數元">
-			</div>
+				<div data-show-source="origin" data-show-for="EXISTING">
+					<label for="originalAmount">原始借款金額</label>
+					<input id="originalAmount" type="text" inputmode="numeric" th:field="*{originalAmount}" placeholder="整數元">
+				</div>
 
-			<label for="startDate" th:text="*{origin?.name() == 'EXISTING'} ? '起算日' : '撥款日'">撥款日</label>
-			<input id="startDate" type="date" th:field="*{startDate}" required>
+				<label for="startDate" th:text="*{origin?.name() == 'EXISTING'} ? '起算日' : '撥款日'">撥款日</label>
+				<input id="startDate" type="date" th:field="*{startDate}" required>
 
-			<label for="startPrincipal" th:text="*{origin?.name() == 'EXISTING'} ? '起算本金' : '借款金額'">借款金額</label>
-			<input id="startPrincipal" type="text" inputmode="numeric" th:field="*{startPrincipal}" placeholder="整數元" required>
+				<label for="startPrincipal" th:text="*{origin?.name() == 'EXISTING'} ? '起算本金' : '借款金額'">借款金額</label>
+				<input id="startPrincipal" type="text" inputmode="numeric" th:field="*{startPrincipal}" placeholder="整數元" required>
 
-			<th:block th:if="${loanId == null}">
-				<label for="annualRatePercent">年利率（%）</label>
-				<input id="annualRatePercent" type="text" inputmode="decimal" th:field="*{annualRatePercent}" placeholder="例如 2.5" required>
-			</th:block>
-
-			<div data-show-source="origin" data-show-for="NEW">
-				<label for="disburseAccountId">撥入帳戶</label>
-				<select id="disburseAccountId" th:field="*{disburseAccountId}">
+				<label for="payAccountId">往來帳戶</label>
+				<select id="payAccountId" th:field="*{payAccountId}">
 					<option value="">請選擇</option>
 					<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">土銀帳戶</option>
 				</select>
-			</div>
 
-			<label for="payAccountId">扣款帳戶</label>
-			<select id="payAccountId" th:field="*{payAccountId}">
-				<option value="">請選擇</option>
-				<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">土銀帳戶</option>
-			</select>
+				<label for="payDay">每月扣款日或繳息日</label>
+				<input id="payDay" type="number" min="1" max="31" th:field="*{payDay}" placeholder="幾號（1～31）" required>
 
-			<label for="payDay">每月扣款日或繳息日</label>
-			<input id="payDay" type="number" min="1" max="31" th:field="*{payDay}" placeholder="幾號（1～31）" required>
+				<th:block th:if="${editMethod == 'MONTHLY_FIXED'}">
+					<label for="remainingPeriods" th:text="*{origin?.name() == 'EXISTING'} ? '剩餘期數' : '總期數'">總期數</label>
+					<input id="remainingPeriods" type="number" min="1" max="600" th:field="*{remainingPeriods}">
 
-			<div data-show-source="type" data-show-for="CREDIT">
-				<label for="remainingPeriods" th:text="*{origin?.name() == 'EXISTING'} ? '剩餘期數' : '總期數'">總期數</label>
-				<input id="remainingPeriods" type="number" min="1" max="600" th:field="*{remainingPeriods}" placeholder="例如 7 年就是 84 期">
-
-				<label for="firstPeriod">第一期扣款月份</label>
-				<input id="firstPeriod" type="month" th:field="*{firstPeriod}">
-				<p class="muted">本息平均攤還：月付金四捨五入到元，每期利息無條件進位到元。</p>
-			</div>
-
-			<div data-show-source="type" data-show-for="PLEDGE">
-				<label for="dueDate">到期日</label>
-				<input id="dueDate" type="date" th:field="*{dueDate}">
-				<p class="muted">可不填。質押依每天的借款餘額計息，每月繳息日自動記一筆利息。</p>
-			</div>
+					<label for="firstPeriod">第一期扣款月份</label>
+					<input id="firstPeriod" type="month" th:field="*{firstPeriod}">
+				</th:block>
+				<th:block th:unless="${editMethod == 'MONTHLY_FIXED'}">
+					<label for="dueDate">到期日</label>
+					<input id="dueDate" type="date" th:field="*{dueDate}">
+					<p class="muted">到期展延就改成新的到期日。</p>
+				</th:block>
+			</th:block>
 
 			<div class="form-actions">
 				<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">儲存</button>

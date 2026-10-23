@@ -25,6 +25,13 @@ import java.util.List;
  * @param maintenanceLevel   OK、WARN（低於提醒線）、CALL（低於追繳線）；沒有維持率為 null
  * @param warnPercent        提醒線（%）；信貸為 null
  * @param callPercent        追繳線（%）；信貸為 null
+ * @param repaymentLabel     還款方式（每月固定還款、到期一次還本金＋利息、每月繳息到期還本）
+ * @param monthlyPayment     每月固定還款：目前的銀行每月扣款（舊借款是公式算的月付金）；其他方式為 null
+ * @param dueDate            到期日；每月固定還款或沒填為 null
+ * @param daysToDue          到期還有幾天（負數＝已經過期）；沒有到期日或已還清為 null
+ * @param amountAtDue        到期要還：到期一次還本金＋利息是本金＋利息估計，每月繳息是本金；沒有到期日為 null
+ * @param accruedInterest    到期一次還本金＋利息：到今天為止還沒付的應計利息；其他方式為 null
+ * @param dueSoon            到期前 30 天內或已過期、還沒還清（要提醒）
  */
 public record LoanCard(Long id, String name, String bank, String typeLabel, String originLabel, boolean credit,
 		boolean pledge, BigDecimal originalAmount, BigDecimal remaining, BigDecimal ratePercent,
@@ -33,5 +40,7 @@ public record LoanCard(Long id, String name, String bank, String typeLabel, Stri
 		List<LoanHoldingLine> deployedIn, List<LoanPurchaseLine> purchases, BigDecimal netGain, BigDecimal investGain,
 		BigDecimal investReturnPercent,
 		String verdict, List<CollateralLine> collateral,
-		BigDecimal maintenancePercent, String maintenanceLevel, BigDecimal warnPercent, BigDecimal callPercent) {
+		BigDecimal maintenancePercent, String maintenanceLevel, BigDecimal warnPercent, BigDecimal callPercent,
+		String repaymentLabel, BigDecimal monthlyPayment, LocalDate dueDate, Integer daysToDue, BigDecimal amountAtDue,
+		BigDecimal accruedInterest, boolean dueSoon) {
 }

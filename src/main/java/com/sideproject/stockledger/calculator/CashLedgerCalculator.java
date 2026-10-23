@@ -48,7 +48,7 @@ public final class CashLedgerCalculator {
 			.forEach(e -> {
 				switch (e.type()) {
 					case OPENING, DEPOSIT, LOAN_DISBURSEMENT, STOCK_SELL, DIVIDEND -> add(balances, e.accountId(), e.amount());
-					case WITHDRAWAL, LOAN_PRINCIPAL, LOAN_INTEREST, STOCK_BUY ->
+					case WITHDRAWAL, LOAN_PRINCIPAL, LOAN_INTEREST, LOAN_FEE, STOCK_BUY ->
 						add(balances, e.accountId(), e.amount().negate());
 					case TRANSFER -> {
 						add(balances, e.accountId(), e.amount().negate());
@@ -96,8 +96,8 @@ public final class CashLedgerCalculator {
 				case OPENING, TRANSFER, LOAN_DISBURSEMENT, LOAN_PRINCIPAL, STOCK_BUY, STOCK_SELL -> {
 					// 不算變動：起點、左手換右手、借錢與還本金、買賣股票只改變資產形式（spec 4.3-2；賣出損益在總覽計算）
 				}
-				case LOAN_INTEREST -> {
-					// 不在這裡算：利息依應計制由 LoanAccrualCalculator 算好，用 withInterest 加進來，避免算兩次
+				case LOAN_INTEREST, LOAN_FEE -> {
+					// 不在這裡算：開辦費和利息一起由 LoanService 算進「利息」（DR-048）；利息依應計制由 LoanAccrualCalculator 算好，用 withInterest 加進來，避免算兩次
 				}
 			}
 		}

@@ -19,12 +19,24 @@ import com.sideproject.stockledger.calculator.MonthlyNetWorthChange;
  * @param leveragePercent    槓桿比例 ＝ 總負債 ÷ 總資產（%）；總資產 ≤ 0 時為 null
  * @param flows              本月資金移動（只改變資產形式的事件）
  * @param holdings           持股報酬表（同股票頁）
+ * @param dueReminders       到期提醒
  */
 public record OverviewView(BigDecimal netWorth, BigDecimal totalAssets, BigDecimal stockValue, BigDecimal cash,
 		BigDecimal totalDebt, BigDecimal weightedRatePercent, BigDecimal leveragePercent, YearMonth month,
 		YearMonth previousMonth, YearMonth nextMonth, MonthlyNetWorthChange monthChange,
 		BigDecimal stockReturnPercent, BigDecimal loanNetGain, List<MaintenanceRow> maintenance,
-		List<UnfilledPeriod> reminders, List<FlowRow> flows, List<HoldingRow> holdings, LocalDate priceDate) {
+		List<UnfilledPeriod> reminders, List<FlowRow> flows, List<HoldingRow> holdings, LocalDate priceDate,
+		List<DueReminder> dueReminders) {
+
+	/** 到期前 30 天內或已過期、還沒還清的借款（spec 4.8a-5）。daysToDue 負數＝已過期。 */
+	public record DueReminder(String loanName, LocalDate dueDate, int daysToDue, BigDecimal amountAtDue) {
+
+		/** 已經過期幾天（還沒過期是 0），畫面直接顯示。 */
+		public int overdueDays() {
+			return Math.max(0, -daysToDue);
+		}
+
+	}
 
 	/** 一筆質押的維持率。level：OK、WARN、CALL。 */
 	public record MaintenanceRow(String loanName, BigDecimal percent, String level, BigDecimal warnPercent,

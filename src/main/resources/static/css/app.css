@@ -226,3 +226,20 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 .worth-behind .worth-verdict, .worth-behind .worth-net { color: var(--error-text); }
 .maintenance-warn { color: var(--warning-text); font-weight: 600; }
 .maintenance-call { color: var(--error-text); font-weight: 600; }
+
+/* ---------- 新增借款：還款方式與股票質押（樣稿 loan-form.html，DR-048） ---------- */
+.method-group { display: grid; gap: 8px; margin: 4px 0 12px; }
+.method { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; font-weight: normal; }
+.method input { margin-top: 4px; width: auto; }
+.method strong { display: block; }
+.method small { color: var(--muted); }
+.method:has(input:checked) { border-color: var(--primary); background: var(--info-bg); }
+.checkbox-line { display: flex; gap: 8px; align-items: center; font-weight: normal; }
+.checkbox-line input { width: auto; margin: 0; }
+.collateral-box { margin: 8px 0 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+.collateral-table { font-size: 0.9em; }
+.collateral-table th, .collateral-table td { padding: 6px 8px; }
+.collateral-table input[type=number] { width: 90px; padding: 4px 6px; margin: 0; }
+.collateral-table input[type=checkbox] { width: auto; margin: 0; }
+.threshold-row { display: flex; gap: 12px; margin-top: 8px; }
+.threshold-row label { flex: 1; margin: 0; }

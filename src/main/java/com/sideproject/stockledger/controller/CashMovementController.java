@@ -161,7 +161,7 @@ public class CashMovementController {
 				yield MOVEMENT_FORM;
 			}
 			// 借款的撥款、還本、利息與配息只能改日期與金額
-			case LOAN_DISBURSEMENT, LOAN_PRINCIPAL, LOAN_INTEREST, DIVIDEND -> {
+			case LOAN_DISBURSEMENT, LOAN_PRINCIPAL, LOAN_INTEREST, LOAN_FEE, DIVIDEND -> {
 				model.addAttribute("form", movements.loanMovementForm(id));
 				model.addAttribute("movementType", m.getType());
 				yield LOAN_MOVEMENT_FORM;

@@ -27,6 +27,7 @@ document.addEventListener('submit', function (event) {
 
 // 依某個欄位的值只顯示需要的欄位：<div data-show-source="cycle" data-show-for="SEMIANNUAL YEARLY">
 // 只在 #cycle 是其中之一時顯示；沒寫 data-show-source 時看 #type（記一筆現金異動）。
+// 來源也可以是一組 radio（name="repaymentMethod"，看選中的那個）或 checkbox（勾了是它的 value，沒勾是空字串）。
 // 隱藏的欄位同時設 disabled，表單送出時就不會帶上切換前選的舊值。
 // 沒有 JavaScript 時所有欄位都顯示，伺服器照規則檢查。
 (function () {
@@ -34,16 +35,35 @@ document.addEventListener('submit', function (event) {
 	if (sections.length === 0) {
 		return;
 	}
-	function sourceOf(section) {
-		return document.getElementById(section.dataset.showSource || 'type');
+	function sourceName(section) {
+		return section.dataset.showSource || 'type';
+	}
+	function sourceFields(name) {
+		var byId = document.getElementById(name);
+		return byId ? [byId] : Array.prototype.slice.call(document.querySelectorAll('input[name="' + name + '"]'));
+	}
+	function valueOf(name) {
+		var fields = sourceFields(name);
+		for (var i = 0; i < fields.length; i++) {
+			var f = fields[i];
+			if (f.type === 'radio' || f.type === 'checkbox') {
+				if (f.checked) {
+					return f.value;
+				}
+			}
+			else {
+				return f.value;
+			}
+		}
+		return fields.length === 0 ? null : '';
 	}
 	function apply() {
 		sections.forEach(function (section) {
-			var source = sourceOf(section);
-			if (!source) {
+			var value = valueOf(sourceName(section));
+			if (value === null) {
 				return;
 			}
-			var show = section.dataset.showFor.split(' ').indexOf(source.value) >= 0;
+			var show = section.dataset.showFor.split(' ').indexOf(value) >= 0;
 			section.hidden = !show;
 			section.querySelectorAll('input, select, textarea').forEach(function (field) {
 				field.disabled = !show;
@@ -51,10 +71,9 @@ document.addEventListener('submit', function (event) {
 		});
 	}
 	sections.forEach(function (section) {
-		var source = sourceOf(section);
-		if (source) {
-			source.addEventListener('change', apply);
-		}
+		sourceFields(sourceName(section)).forEach(function (field) {
+			field.addEventListener('change', apply);
+		});
 	});
 	// 按「上一頁」回來時瀏覽器會還原之前選的值，要再套用一次
 	window.addEventListener('pageshow', apply);

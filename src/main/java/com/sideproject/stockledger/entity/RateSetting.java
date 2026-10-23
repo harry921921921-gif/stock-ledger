@@ -87,6 +87,14 @@ public class RateSetting {
 		return rate;
 	}
 
+	/** 某一筆每月固定還款借款的銀行每月扣款金額版本（整數元）。只新增、不修改（spec 4.8a、DR-048）。 */
+	public static RateSetting loanPayment(Long userId, Long loanId, BigDecimal amount, LocalDate effectiveDate,
+			LocalDateTime now) {
+		RateSetting rate = loanRate(userId, loanId, amount, effectiveDate, now);
+		rate.kind = RateKind.LOAN_MONTHLY_PAYMENT;
+		return rate;
+	}
+
 	/** 某一筆質押的維持率提醒線或追繳線版本（1.5 = 150%）。只新增、不修改。 */
 	public static RateSetting loanThreshold(Long userId, Long loanId, RateKind kind, BigDecimal ratio,
 			LocalDate effectiveDate, LocalDateTime now) {

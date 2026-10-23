@@ -22,9 +22,11 @@ import com.sideproject.stockledger.entity.CashAccount;
 import com.sideproject.stockledger.entity.Loan;
 import com.sideproject.stockledger.entity.LoanOrigin;
 import com.sideproject.stockledger.entity.LoanType;
+import com.sideproject.stockledger.entity.RepaymentMethod;
 import com.sideproject.stockledger.service.CashAccountService;
 import com.sideproject.stockledger.service.LoanService;
 import com.sideproject.stockledger.service.LoanValidationException;
+import com.sideproject.stockledger.service.TradeService;
 
 /**
  * 資金來源頁（spec 第 3 節第 4 頁、設計文件 7）：借款清單、新增、修改、利率版本、還本、質押再動撥。
@@ -40,8 +42,10 @@ public class FundingController {
 	private final LoanService loans;
 	private final CashAccountService accounts;
 	private final FormTokens tokens;
+	private final TradeService trades;
 
-	public FundingController(LoanService loans, CashAccountService accounts, FormTokens tokens) {
+	public FundingController(LoanService loans, CashAccountService accounts, FormTokens tokens, TradeService trades) {
+		this.trades = trades;
 		this.loans = loans;
 		this.accounts = accounts;
 		this.tokens = tokens;
@@ -55,6 +59,17 @@ public class FundingController {
 	@ModelAttribute("loanTypes")
 	public LoanType[] loanTypes() {
 		return LoanType.values();
+	}
+
+	@ModelAttribute("repaymentMethods")
+	public RepaymentMethod[] repaymentMethods() {
+		return RepaymentMethod.values();
+	}
+
+	/** 新增股票質押時可以勾選的擔保持股（spec 4.8a-3）。 */
+	@ModelAttribute("myHoldings")
+	public List<TradeService.HoldingValue> myHoldings() {
+		return trades.holdingValues();
 	}
 
 	@ModelAttribute("origins")
@@ -73,15 +88,20 @@ public class FundingController {
 	@GetMapping("/funding/new")
 	public String newLoan(Model model, HttpSession session) {
 		model.addAttribute("form", new LoanForm(null, LoanType.CREDIT, null, LoanOrigin.NEW, null, loans.today(),
-				null, null, null, null, null, null, null, null));
+				null, null, null, null, null, null, null, null, RepaymentMethod.MONTHLY_FIXED, null, null, List.of(), null,
+				null));
 		model.addAttribute("formToken", tokens.issue(session));
 		return LOAN_FORM;
 	}
 
 	@PostMapping("/funding/new")
-	public String create(@ModelAttribute("form") LoanForm form, BindingResult result,
-			@RequestParam(required = false) String formToken, HttpSession session, Model model,
-			RedirectAttributes redirect) {
+	public String create(@ModelAttribute("form") LoanForm submitted, BindingResult result,
+			@RequestParam(required = false) String formToken, @RequestParam(required = false) Boolean pledge,
+			HttpSession session, Model model, RedirectAttributes redirect) {
+		// 新表單用「這是股票質押」勾選框決定類型（DR-048）；舊的寫法直接送 type
+		LoanForm form = submitted.repaymentMethod() == null ? submitted : withType(submitted,
+				Boolean.TRUE.equals(pledge) ? LoanType.PLEDGE : LoanType.CREDIT);
+		model.addAttribute("form", form);
 		if (result.hasErrors()) {
 			model.addAttribute("formToken", formToken);
 			return LOAN_FORM;
@@ -104,7 +124,8 @@ public class FundingController {
 			tokens.restore(session, formToken);
 			throw ex;
 		}
-		redirect.addFlashAttribute("message", "已新增「" + saved.getName() + "」");
+		String warning = loans.paymentWarning(saved.getId());
+		redirect.addFlashAttribute("message", "已新增「" + saved.getName() + "」" + (warning == null ? "" : "。" + warning));
 		return "redirect:/funding";
 	}
 
@@ -113,13 +134,14 @@ public class FundingController {
 		Loan loan = loans.find(id);
 		model.addAttribute("form", loans.form(loan.getId()));
 		model.addAttribute("loanId", id);
+		model.addAttribute("editMethod", loan.getRepaymentMethod().name());
 		return LOAN_FORM;
 	}
 
 	@PostMapping("/funding/{id}/edit")
 	public String update(@PathVariable Long id, @ModelAttribute("form") LoanForm form, BindingResult result,
 			Model model, RedirectAttributes redirect) {
-		loans.find(id);
+		model.addAttribute("editMethod", loans.find(id).getRepaymentMethod().name());
 		model.addAttribute("loanId", id);
 		if (result.hasErrors()) {
 			return LOAN_FORM;
@@ -238,7 +260,8 @@ public class FundingController {
 		Loan loan = loans.find(id);
 		model.addAttribute("loan", loan);
 		model.addAttribute("redraw", redraw);
-		model.addAttribute("form", new PrincipalForm(loans.today(), null, loan.getPayAccountId()));
+		model.addAttribute("form", redraw ? new PrincipalForm(loans.today(), null, loan.getPayAccountId())
+				: loans.repayDefaults(id));
 		model.addAttribute("formToken", tokens.issue(session));
 		return PRINCIPAL_FORM;
 	}
@@ -275,6 +298,13 @@ public class FundingController {
 		}
 		redirect.addFlashAttribute("message", (redraw ? "已記錄再動撥：" : "已記錄還本：") + loan.getName());
 		return "redirect:/funding";
+	}
+
+	private static LoanForm withType(LoanForm f, LoanType type) {
+		return new LoanForm(f.name(), type, f.bank(), f.origin(), f.originalAmount(), f.startDate(), f.startPrincipal(),
+				f.annualRatePercent(), f.disburseAccountId(), f.payAccountId(), f.payDay(), f.remainingPeriods(),
+				f.firstPeriod(), f.dueDate(), f.repaymentMethod(), f.monthlyPayment(), f.fee(), f.collateral(),
+				f.warnPercent(), f.callPercent());
 	}
 
 }

@@ -122,14 +122,13 @@ class FundingControllerTest {
 		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM loan", Integer.class)).isZero();
 	}
 
-	/** 依類型顯示信貸欄位、依方式顯示撥入帳戶（app.js data-show-source）。 */
+	/** 依還款方式顯示需要的欄位（app.js data-show-source 支援 radio；DR-048 取代依類型、依新撥款切換）。 */
 	@Test
 	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
 	void formHasConditionalFields() throws Exception {
 		mvc.perform(get("/funding/new"))
-			.andExpect(content().string(containsString("data-show-source=\"type\" data-show-for=\"CREDIT\"")))
-			.andExpect(content().string(containsString("data-show-source=\"type\" data-show-for=\"PLEDGE\"")))
-			.andExpect(content().string(containsString("data-show-source=\"origin\" data-show-for=\"NEW\"")))
+			.andExpect(content().string(containsString("data-show-source=\"repaymentMethod\" data-show-for=\"INTEREST_ONLY\"")))
+			.andExpect(content().string(containsString("data-show-source=\"repaymentMethod\" data-show-for=\"BULLET INTEREST_ONLY\"")))
 			.andExpect(content().string(containsString("<label for=\"annualRatePercent\">年利率（%）</label>")));
 	}
 
@@ -231,9 +230,9 @@ class FundingControllerTest {
 	void otherUsersLoanIs404() throws Exception {
 		Long benId = users.findByUsername("fc-ben").orElseThrow().getId();
 		Long benBank = insertAccount(benId, "班的帳戶");
-		jdbc.update("INSERT INTO loan (user_id, name, loan_type, bank, original_amount, origin, start_date, "
+		jdbc.update("INSERT INTO loan (user_id, name, loan_type, repayment_method, bank, original_amount, origin, start_date, "
 				+ "start_principal, pay_account_id, pay_day, posting_from, created_at) VALUES (?, '班的質押', 'PLEDGE', "
-				+ "'銀行', 1000, 'EXISTING', ?, 1000, ?, 25, ?, NOW())", benId, today, benBank, thisMonth.atDay(1));
+				+ "'INTEREST_ONLY', '銀行', 1000, 'EXISTING', ?, 1000, ?, 25, ?, NOW())", benId, today, benBank, thisMonth.atDay(1));
 		Long loan = jdbc.queryForObject("SELECT MAX(id) FROM loan", Long.class);
 
 		mvc.perform(get("/funding/{id}/edit", loan)).andExpect(status().isNotFound());
@@ -281,6 +280,92 @@ class FundingControllerTest {
 		mvc.perform(post("/funding/new").session(session).with(csrf()).param("formToken", openNewForm(session))
 				.params(params)).andExpect(redirectedUrl("/funding"));
 		return jdbc.queryForObject("SELECT MAX(id) FROM loan", Long.class);
+	}
+
+	// ---------- 新增借款依還款方式（spec 4.8a、DR-048、樣稿 loan-form.html） ----------
+
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void formShowsRepaymentMethods() throws Exception {
+		String html = mvc.perform(get("/funding/new")).andReturn().getResponse().getContentAsString();
+
+		assertThat(html.split("name=\"repaymentMethod\"", -1)).hasSize(4);
+		assertThat(html).contains("name=\"pledge\"")
+			.contains("data-show-source=\"repaymentMethod\" data-show-for=\"MONTHLY_FIXED\"")
+			.contains("data-show-source=\"pledge\" data-show-for=\"true\"")
+			.contains("往來帳戶");
+	}
+
+	/** 土銀信貸照合約與銀行扣款填：存好後卡片顯示每月扣款 5,133。 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void createMonthlyViaForm() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+
+		mvc.perform(post("/funding/new").session(session).with(csrf()).param("formToken", openNewForm(session))
+				.params(monthlyParams("2.15")))
+			.andExpect(redirectedUrl("/funding"))
+			.andExpect(flash().attribute("message", "已新增「土銀信貸」"));
+
+		mvc.perform(get("/funding"))
+			.andExpect(content().string(containsString("每月固定還款")))
+			.andExpect(content().string(containsString("5,133")));
+	}
+
+	/** 利率填成 2.45%：照樣存，但提醒和合約算的差 54 元。 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void paymentWarningFlash() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+
+		mvc.perform(post("/funding/new").session(session).with(csrf()).param("formToken", openNewForm(session))
+				.params(monthlyParams("2.45")))
+			.andExpect(redirectedUrl("/funding"))
+			.andExpect(flash().attribute("message", containsString("差 54")));
+	}
+
+	/** 到期一次還本金＋利息：還本表單帶入本金與應計利息。 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void bulletRepayFormPrefilled() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+		var p = new org.springframework.util.LinkedMultiValueMap<String, String>();
+		p.add("name", "玉山質押");
+		p.add("bank", "玉山銀行");
+		p.add("repaymentMethod", "BULLET");
+		p.add("pledge", "true");
+		p.add("origin", "NEW");
+		p.add("startDate", today.minusMonths(3).toString());
+		p.add("startPrincipal", "100000");
+		p.add("annualRatePercent", "4");
+		p.add("payAccountId", bank.toString());
+		p.add("dueDate", today.plusMonths(9).toString());
+		mvc.perform(post("/funding/new").session(session).with(csrf()).param("formToken", openNewForm(session))
+				.params(p))
+			.andExpect(redirectedUrl("/funding"));
+		Long loan = jdbc.queryForObject("SELECT MAX(id) FROM loan", Long.class);
+		assertThat(jdbc.queryForObject("SELECT CONCAT(loan_type, ':', repayment_method) FROM loan WHERE id = ?",
+				String.class, loan)).isEqualTo("PLEDGE:BULLET");
+
+		mvc.perform(get("/funding/{id}/repay", loan))
+			.andExpect(content().string(containsString("name=\"interest\"")))
+			.andExpect(content().string(containsString("value=\"100000\"")));
+	}
+
+	private org.springframework.util.LinkedMultiValueMap<String, String> monthlyParams(String ratePercent) {
+		var p = new org.springframework.util.LinkedMultiValueMap<String, String>();
+		p.add("name", "土銀信貸");
+		p.add("bank", "土地銀行");
+		p.add("repaymentMethod", "MONTHLY_FIXED");
+		p.add("origin", "NEW");
+		p.add("startDate", "2026-02-01");
+		p.add("startPrincipal", "400000");
+		p.add("annualRatePercent", ratePercent);
+		p.add("payAccountId", bank.toString());
+		p.add("monthlyPayment", "5133");
+		p.add("payDay", "1");
+		p.add("remainingPeriods", "84");
+		return p;
 	}
 
 	private org.springframework.util.LinkedMultiValueMap<String, String> creditParams() {

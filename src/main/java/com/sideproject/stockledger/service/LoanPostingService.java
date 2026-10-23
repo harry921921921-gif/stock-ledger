@@ -23,7 +23,6 @@ import com.sideproject.stockledger.calculator.InstallmentCalculator;
 import com.sideproject.stockledger.entity.CashMovement;
 import com.sideproject.stockledger.entity.CashMovementType;
 import com.sideproject.stockledger.entity.Loan;
-import com.sideproject.stockledger.entity.LoanType;
 import com.sideproject.stockledger.repository.CashMovementRepository;
 import com.sideproject.stockledger.repository.LoanRepository;
 
@@ -93,7 +92,12 @@ public class LoanPostingService {
 	/** 一筆借款到 today 為止到期、還沒產生的期數（新增借款、還本、修改時也會呼叫）。 */
 	@Transactional
 	public int postDue(Loan loan, LocalDate today) {
-		return loan.getType() == LoanType.CREDIT ? postCredit(loan, today) : postPledge(loan, today);
+		// 依還款方式（DR-048）：到期一次還本金＋利息平常不記任何利息，到期由使用者按還本時一起記
+		return switch (loan.getRepaymentMethod()) {
+			case MONTHLY_FIXED -> postCredit(loan, today);
+			case INTEREST_ONLY -> postPledge(loan, today);
+			case BULLET -> 0;
+		};
 	}
 
 	/** 信貸：照攤還表，每期扣款日記「借款還本」與「借款利息」。 */

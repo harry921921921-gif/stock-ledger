@@ -72,19 +72,19 @@ class LoanSchemaTest {
 	@Test
 	void creditNeedsPeriods() {
 		assertThatThrownBy(() -> credit(userId, account, "EXISTING", null, null, "2026-11-01"))
-			.satisfies(violates("ck_loan_credit"));
+			.satisfies(violates("ck_loan_method"));
 		assertThatThrownBy(() -> credit(userId, account, "EXISTING", null, 0, "2026-11-01"))
-			.satisfies(violates("ck_loan_credit"));
+			.satisfies(violates("ck_loan_method"));
 		assertThatThrownBy(() -> credit(userId, account, "EXISTING", null, 60, null))
-			.satisfies(violates("ck_loan_credit"));
+			.satisfies(violates("ck_loan_method"));
 		assertThatThrownBy(() -> credit(userId, account, "EXISTING", null, 60, "2026-11-05"))
-			.satisfies(violates("ck_loan_credit"));
+			.satisfies(violates("ck_loan_method"));
 	}
 
 	@Test
 	void pledgeHasNoPeriods() {
 		assertThatThrownBy(() -> jdbc.update(insertLoan("PLEDGE", "EXISTING", null, 60, "2026-11-01"), userId,
-				account)).satisfies(violates("ck_loan_credit"));
+				account)).satisfies(violates("ck_loan_method"));
 	}
 
 	@Test
@@ -163,9 +163,9 @@ class LoanSchemaTest {
 	}
 
 	private static String insertLoan(String type, String origin, Long disburse, Integer periods, String firstPeriod) {
-		return "INSERT INTO loan (user_id, name, loan_type, bank, original_amount, origin, start_date, "
+		return "INSERT INTO loan (user_id, name, loan_type, repayment_method, bank, original_amount, origin, start_date, "
 				+ "start_principal, disburse_account_id, pay_account_id, pay_day, remaining_periods, first_period, "
-				+ "posting_from, created_at) VALUES (?, '借款', '" + type + "', '銀行', 400000, '" + origin
+				+ "posting_from, created_at) VALUES (?, '借款', '" + type + "', '" + ("CREDIT".equals(type) ? "MONTHLY_FIXED" : "INTEREST_ONLY") + "', '銀行', 400000, '" + origin
 				+ "', '2026-10-01', 400000, " + disburse + ", ?, 5, " + periods + ", "
 				+ (firstPeriod == null ? "NULL" : "'" + firstPeriod + "'") + ", '2026-10-01', NOW())";
 	}

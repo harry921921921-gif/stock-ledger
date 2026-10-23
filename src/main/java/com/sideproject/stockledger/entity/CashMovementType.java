@@ -21,6 +21,7 @@ public enum CashMovementType {
 	LOAN_DISBURSEMENT("借款撥款"),
 	LOAN_PRINCIPAL("借款還本"),
 	LOAN_INTEREST("借款利息"),
+	LOAN_FEE("開辦費"),
 	STOCK_BUY("買進股票"),
 	STOCK_SELL("賣出股票"),
 	DIVIDEND("配息");
@@ -40,9 +41,9 @@ public enum CashMovementType {
 		return this == STOCK_BUY || this == STOCK_SELL;
 	}
 
-	/** 借款的三種類型：一定有所屬借款，從資金來源頁記，不在「記一筆現金異動」裡。 */
+	/** 借款的四種類型（含開辦費）：一定有所屬借款，從資金來源頁記，不在「記一筆現金異動」裡。 */
 	public boolean isLoan() {
-		return this == LOAN_DISBURSEMENT || this == LOAN_PRINCIPAL || this == LOAN_INTEREST;
+		return this == LOAN_DISBURSEMENT || this == LOAN_PRINCIPAL || this == LOAN_INTEREST || this == LOAN_FEE;
 	}
 
 }

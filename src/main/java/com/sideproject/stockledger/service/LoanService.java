@@ -6,6 +6,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -24,11 +25,13 @@ import com.sideproject.stockledger.calculator.InstallmentCalculator;
 import com.sideproject.stockledger.calculator.LoanAccrualCalculator;
 import com.sideproject.stockledger.calculator.LoanRateCalculator;
 import com.sideproject.stockledger.calculator.LoanUsage;
+import com.sideproject.stockledger.calculator.PaymentChange;
 import com.sideproject.stockledger.calculator.Portfolio;
 import com.sideproject.stockledger.calculator.Position;
 import com.sideproject.stockledger.calculator.StockMetricsCalculator;
 import com.sideproject.stockledger.calculator.RateChange;
 import com.sideproject.stockledger.dto.CollateralLine;
+import com.sideproject.stockledger.dto.CollateralPick;
 import com.sideproject.stockledger.dto.FundingView;
 import com.sideproject.stockledger.dto.LoanCard;
 import com.sideproject.stockledger.dto.LoanForm;
@@ -45,6 +48,7 @@ import com.sideproject.stockledger.entity.LoanType;
 import com.sideproject.stockledger.entity.PledgeCollateral;
 import com.sideproject.stockledger.entity.RateKind;
 import com.sideproject.stockledger.entity.RateSetting;
+import com.sideproject.stockledger.entity.RepaymentMethod;
 import com.sideproject.stockledger.entity.Stock;
 import com.sideproject.stockledger.repository.CashAccountRepository;
 import com.sideproject.stockledger.repository.CashMovementRepository;
@@ -68,6 +72,8 @@ public class LoanService {
 	/** 維持率門檻沒設定時（DR-007）：提醒線 150%、追繳線 130%。 */
 	private static final BigDecimal DEFAULT_WARN = new BigDecimal("150");
 	private static final BigDecimal DEFAULT_CALL = new BigDecimal("130");
+	/** 到期前幾天開始提醒（spec 4.8a-5）。 */
+	static final int DUE_REMINDER_DAYS = 30;
 	private static final int MAX_NAME_LENGTH = 50;
 	private static final int MAX_PERIODS = 600;
 
@@ -115,22 +121,118 @@ public class LoanService {
 	 * 兩種都寫第一個利率版本（生效日 ＝ 起算日），並立刻補記已到期的期數。
 	 */
 	@Transactional
-	public Loan create(LoanForm form) {
+	public Loan create(LoanForm submitted) {
 		Long userId = currentUser.id();
-		BigDecimal rate = validate(form);
+		RepaymentMethod method = submitted.repaymentMethod() != null ? submitted.repaymentMethod()
+				: RepaymentMethod.legacyOf(submitted.type());
+		LoanForm form = normalize(submitted, method);
+		BigDecimal rate = validate(form, method);
 		BigDecimal original = form.origin() == LoanOrigin.NEW && form.originalAmount() == null ? form.startPrincipal()
 				: form.originalAmount();
 		LocalDateTime now = LocalDateTime.now(clock);
-		Loan loan = loans.save(Loan.create(userId, form.name(), form.type(), form.bank(), original, form.origin(),
-				form.startDate(), form.startPrincipal(), form.disburseAccountId(), form.payAccountId(), form.payDay(),
-				form.remainingPeriods(), form.firstPeriod(), form.dueDate(), now));
+		Loan loan = loans.save(Loan.create(userId, form.name(), form.type(), method, form.bank(), original,
+				form.origin(), form.startDate(), form.startPrincipal(), form.disburseAccountId(), form.payAccountId(),
+				form.payDay(), form.remainingPeriods(), form.firstPeriod(), form.dueDate(), now));
 		rates.save(RateSetting.loanRate(userId, loan.getId(), rate, form.startDate(), now));
+		if (method == RepaymentMethod.MONTHLY_FIXED && form.monthlyPayment() != null) {
+			rates.save(RateSetting.loanPayment(userId, loan.getId(), form.monthlyPayment(), form.startDate(), now));
+		}
 		if (form.origin() == LoanOrigin.NEW) {
 			movements.saveAndFlush(CashMovement.ofLoan(loan, CashMovementType.LOAN_DISBURSEMENT, form.startDate(),
 					form.disburseAccountId(), form.startPrincipal(), null, now));
 		}
+		if (form.fee() != null && form.fee().signum() > 0) {
+			// 開辦費記在撥款日，算進借款成本（DR-048）
+			movements.saveAndFlush(CashMovement.ofLoan(loan, CashMovementType.LOAN_FEE, form.startDate(),
+					form.payAccountId(), form.fee(), null, now));
+		}
+		if (method == RepaymentMethod.MONTHLY_FIXED) {
+			checkSchedule(loan);
+		}
 		posting.postDue(loan, today());
+		for (CollateralPick pick : form.collateral()) {
+			if (pick.stockId() == null || pick.shares() == null || pick.shares() == 0) {
+				continue;
+			}
+			if (form.type() != LoanType.PLEDGE) {
+				throw new LoanValidationException("只有股票質押要選擔保股票");
+			}
+			Stock stock = stocks.findById(pick.stockId()).orElseThrow(() -> new NotFoundException("找不到這檔股票"));
+			setCollateral(loan.getId(), stock.getCode(), pick.shares());
+		}
+		if (form.type() == LoanType.PLEDGE && (form.warnPercent() != null || form.callPercent() != null)) {
+			setThresholds(loan.getId(), form.warnPercent() == null ? DEFAULT_WARN : form.warnPercent(),
+					form.callPercent() == null ? DEFAULT_CALL : form.callPercent());
+		}
 		return loan;
+	}
+
+	/**
+	 * 表單上省略的欄位補成存檔需要的值（spec 4.8a-2）：往來帳戶同時是撥入與扣款帳戶；到期一次付清沒有扣款日，
+	 * 用撥款日的日子；每月固定還款的第一期是撥款日之後的第一個扣款日。
+	 */
+	private static LoanForm normalize(LoanForm f, RepaymentMethod method) {
+		Long disburse = f.origin() == LoanOrigin.NEW && f.disburseAccountId() == null ? f.payAccountId()
+				: f.disburseAccountId();
+		Integer payDay = f.payDay() == null && method == RepaymentMethod.BULLET && f.startDate() != null
+				? Integer.valueOf(f.startDate().getDayOfMonth()) : f.payDay();
+		YearMonth first = f.firstPeriod();
+		if (first == null && f.repaymentMethod() == RepaymentMethod.MONTHLY_FIXED && payDay != null
+				&& f.startDate() != null) {
+			YearMonth m = YearMonth.from(f.startDate());
+			first = m.atDay(Math.min(payDay, m.lengthOfMonth())).isAfter(f.startDate()) ? m : m.plusMonths(1);
+		}
+		return new LoanForm(f.name(), f.type(), f.bank(), f.origin(), f.originalAmount(), f.startDate(),
+				f.startPrincipal(), f.annualRatePercent(), disburse, f.payAccountId(), payDay, f.remainingPeriods(), first,
+				f.dueDate(), f.repaymentMethod(), f.monthlyPayment(), f.fee(), f.collateral(), f.warnPercent(),
+				f.callPercent());
+	}
+
+	/** 銀行扣款比當期利息少（填錯）時，攤還表會出現負的本金：擋下並說明（DR-048）。 */
+	private void checkSchedule(Loan loan) {
+		try {
+			InstallmentCalculator.schedule(facts.read(loan).installmentInput());
+		}
+		catch (IllegalArgumentException ex) {
+			throw new LoanValidationException(ex.getMessage());
+		}
+	}
+
+	/**
+	 * 每月固定還款：用金額、利率、期數算出的合約月付金和銀行扣款差超過 1 元時的提醒（不擋存檔，DR-048）。
+	 * 其他還款方式、或沒有填銀行扣款的舊借款為 null。
+	 */
+	@Transactional(readOnly = true)
+	public String paymentWarning(Long id) {
+		Loan loan = find(id);
+		if (loan.getRepaymentMethod() != RepaymentMethod.MONTHLY_FIXED) {
+			return null;
+		}
+		LoanFacts f = facts.read(loan);
+		if (f.payments().isEmpty()) {
+			return null;
+		}
+		BigDecimal bank = f.payments().get(0).amount();
+		BigDecimal expected = InstallmentCalculator.monthlyPayment(f.installmentInput().startPrincipal(),
+				f.rates().get(0).annualRate(), loan.getRemainingPeriods());
+		BigDecimal diff = expected.subtract(bank).abs();
+		if (diff.compareTo(BigDecimal.ONE) <= 0) {
+			return null;
+		}
+		return "用金額、利率、期數算出來是 " + money.plain(expected) + "，和銀行扣款 " + money.plain(bank) + " 差 "
+				+ money.plain(diff) + "；請確認金額或利率";
+	}
+
+	/** 還本表單的預設值：剩餘本金；到期一次還本金＋利息另外帶入上次付息（或撥款日）到今天的應計利息。 */
+	@Transactional(readOnly = true)
+	public PrincipalForm repayDefaults(Long id) {
+		Loan loan = find(id);
+		LoanFacts f = facts.read(loan);
+		LocalDate today = today();
+		BigDecimal interest = loan.getRepaymentMethod() != RepaymentMethod.BULLET ? null
+				: DailyInterestCalculator.roundUp(DailyInterestCalculator.interest(f.startBalance(),
+						f.principalChanges(), f.rates(), f.lastInterestPaidBefore(today), today));
+		return new PrincipalForm(today, whole(f.remaining(today)), loan.getPayAccountId(), interest);
 	}
 
 	/**
@@ -158,7 +260,7 @@ public class LoanService {
 				form.payDay(),
 				orElse(form.remainingPeriods(), loan.getRemainingPeriods()),
 				orElse(form.firstPeriod(), loan.getFirstPeriod()), form.dueDate());
-		validate(merged);
+		validate(merged, loan.getRepaymentMethod());
 		if (startChanged) {
 			loan.changeStart(merged.startDate(), merged.startPrincipal(), merged.remainingPeriods(),
 					merged.firstPeriod());
@@ -189,6 +291,19 @@ public class LoanService {
 		BigDecimal rate = toRate(form.annualRatePercent());
 		rates.save(RateSetting.loanRate(currentUser.id(), loan.getId(), rate, form.effectiveDate(),
 				LocalDateTime.now(clock)));
+		if (form.monthlyPayment() != null) {
+			// 銀行的扣款金額跟著利率一起換（DR-048）；沒填就照公式重算（DR-018）
+			if (loan.getRepaymentMethod() != RepaymentMethod.MONTHLY_FIXED) {
+				throw new LoanValidationException("只有每月固定還款要填每月扣款金額");
+			}
+			checkAmount(form.monthlyPayment(), "每月扣款金額");
+			rates.save(RateSetting.loanPayment(currentUser.id(), loan.getId(), form.monthlyPayment(),
+					form.effectiveDate(), LocalDateTime.now(clock)));
+		}
+		if (loan.getRepaymentMethod() == RepaymentMethod.MONTHLY_FIXED) {
+			// 利率調高、扣款沒跟著改時，扣款可能比當期利息少：用說明擋下（審查 I-1）
+			checkSchedule(loan);
+		}
 		posting.postDue(loan, today());
 	}
 
@@ -203,6 +318,15 @@ public class LoanService {
 		}
 		CashMovement saved = movements.saveAndFlush(CashMovement.ofLoan(loan, CashMovementType.LOAN_PRINCIPAL,
 				form.date(), accountId, form.amount(), null, LocalDateTime.now(clock)));
+		if (form.interest() != null && form.interest().signum() != 0) {
+			// 到期一次還本金＋利息：利息和本金同一天一起付（DR-048）；其他方式的利息由自動記帳處理
+			if (loan.getRepaymentMethod() != RepaymentMethod.BULLET) {
+				throw new LoanValidationException("只有到期一次還本金＋利息要一起填利息");
+			}
+			checkAmount(form.interest(), "利息");
+			movements.saveAndFlush(CashMovement.ofLoan(loan, CashMovementType.LOAN_INTEREST, form.date(), accountId,
+					form.interest(), null, LocalDateTime.now(clock)));
+		}
 		// 補記較早的還本時，當天沒超過、但之後已經記的還本加起來可能超過
 		if (facts.read(loan).minRemaining().signum() < 0) {
 			throw new LoanValidationException(NEGATIVE_PRINCIPAL);
@@ -219,6 +343,10 @@ public class LoanService {
 		Loan loan = findForUpdate(id);
 		if (loan.getType() != LoanType.PLEDGE) {
 			throw new LoanValidationException("只有質押可以再動撥");
+		}
+		if (loan.getRepaymentMethod() == RepaymentMethod.MONTHLY_FIXED) {
+			// 攤還表把所有撥款當成第 1 期起的本金，中途再動撥會整張重算（審查 I-2）
+			throw new LoanValidationException("每月固定還款不能再動撥");
 		}
 		Long accountId = validatePrincipal(loan, form);
 		return movements.saveAndFlush(CashMovement.ofLoan(loan, CashMovementType.LOAN_DISBURSEMENT, form.date(),
@@ -379,13 +507,13 @@ public class LoanService {
 			Map<Long, String> accountNames, LocalDate today, StockContext sc) {
 		boolean paidOff = remaining.signum() <= 0;
 		BigDecimal paidInterest = f.active().stream()
-			.filter(m -> m.getType() == CashMovementType.LOAN_INTEREST)
+			.filter(m -> m.getType() == CashMovementType.LOAN_INTEREST || m.getType() == CashMovementType.LOAN_FEE)
 			.map(CashMovement::getAmount)
 			.reduce(BigDecimal.ZERO, BigDecimal::add);
 		LocalDate nextDue = null;
 		BigDecimal nextAmount = null;
 		Integer periodsLeft = null;
-		if (!paidOff && loan.getType() == LoanType.CREDIT) {
+		if (!paidOff && loan.getRepaymentMethod() == RepaymentMethod.MONTHLY_FIXED) {
 			List<Installment> upcoming = InstallmentCalculator.schedule(f.installmentInput()).stream()
 				.filter(i -> i.dueDate().isAfter(today))
 				.toList();
@@ -395,12 +523,37 @@ public class LoanService {
 				nextAmount = upcoming.get(0).principal().add(upcoming.get(0).interest());
 			}
 		}
-		else if (!paidOff) {
+		else if (!paidOff && loan.getRepaymentMethod() == RepaymentMethod.INTEREST_ONLY) {
 			nextDue = nextPayDate(loan, today);
 			LocalDate from = f.lastInterestPaidBefore(nextDue);
 			nextAmount = DailyInterestCalculator.roundUp(
 					DailyInterestCalculator.interest(f.startBalance(), f.principalChanges(), f.rates(), from, nextDue));
 		}
+		// 依還款方式的到期資訊（spec 4.8a-5、4.8a-8）
+		BigDecimal monthlyPayment = null;
+		BigDecimal accrued = null;
+		BigDecimal amountAtDue = null;
+		Integer daysToDue = null;
+		LocalDate dueDate = loan.getRepaymentMethod() == RepaymentMethod.MONTHLY_FIXED ? null : loan.getDueDate();
+		if (loan.getRepaymentMethod() == RepaymentMethod.MONTHLY_FIXED) {
+			monthlyPayment = PaymentChange.amountOn(f.payments(), today).map(LoanService::whole).orElse(nextAmount);
+		}
+		if (loan.getRepaymentMethod() == RepaymentMethod.BULLET && !paidOff) {
+			LocalDate from = f.lastInterestPaidBefore(today);
+			accrued = DailyInterestCalculator.roundUp(
+					DailyInterestCalculator.interest(f.startBalance(), f.principalChanges(), f.rates(), from, today));
+			// 已經過期還沒還：利息算到今天（審查 M-3）
+			LocalDate until = today.isAfter(dueDate) ? today : dueDate;
+			amountAtDue = whole(remaining).add(DailyInterestCalculator.roundUp(DailyInterestCalculator
+				.interest(f.startBalance(), f.principalChanges(), f.rates(), from, until)));
+		}
+		else if (loan.getRepaymentMethod() == RepaymentMethod.INTEREST_ONLY && dueDate != null && !paidOff) {
+			amountAtDue = whole(remaining);
+		}
+		if (dueDate != null && !paidOff) {
+			daysToDue = (int) ChronoUnit.DAYS.between(today, dueDate);
+		}
+		boolean dueSoon = daysToDue != null && daysToDue <= DUE_REMINDER_DAYS;
 		LoanUsage usage = sc.portfolio().loans().get(loan.getId());
 		BigDecimal undeployed = usage == null ? remaining : usage.undeployed();
 		List<LoanHoldingLine> deployedIn = new ArrayList<>();
@@ -423,7 +576,9 @@ public class LoanService {
 				|| usage.dividends().signum() != 0);
 		BigDecimal investGain = usage == null ? BigDecimal.ZERO
 				: unrealized.add(usage.realized()).add(usage.dividends());
-		BigDecimal netGain = investGain.subtract(paidInterest);
+		// 到期一次付清：還沒付、但已經欠的應計利息也是借錢的成本（spec 4.8a-5）
+		BigDecimal cost = accrued == null ? paidInterest : paidInterest.add(accrued);
+		BigDecimal netGain = investGain.subtract(cost);
 		BigDecimal investReturn = usage == null ? null
 				: StockMetricsCalculator.gainPercent(whole(investGain), usage.deployed()).orElse(null);
 		String verdict = !invested ? "NOT_INVESTED" : netGain.signum() >= 0 ? "BEAT" : "BEHIND";
@@ -460,7 +615,8 @@ public class LoanService {
 				monthInterest.setScale(0, RoundingMode.HALF_UP), whole(paidInterest), whole(undeployed), nextDue,
 				nextAmount, periodsLeft, accountNames.getOrDefault(loan.getPayAccountId(), "—"), paidOff, deployedIn,
 				sc.purchases().getOrDefault(loan.getId(), List.of()),
-				whole(netGain), whole(investGain), investReturn, verdict, collateral, maintenance, level, warn, call);
+				whole(netGain), whole(investGain), investReturn, verdict, collateral, maintenance, level, warn, call,
+				loan.getRepaymentMethod().label(), monthlyPayment, dueDate, daysToDue, amountAtDue, accrued, dueSoon);
 	}
 
 	/** 資金來源頁要用的股票資料：投資組合、股名、最新股價、各質押的擔保股票。 */
@@ -533,10 +689,18 @@ public class LoanService {
 		}
 	}
 
-	/** 一筆借款某個月的利息（保留 10 位）。 */
+	/** 一筆借款某個月的利息（保留 10 位），含這個月記的開辦費（借款成本，DR-048）。 */
 	private static BigDecimal interestIn(LoanFacts f, YearMonth month, LocalDate today) {
+		BigDecimal fees = f.active().stream()
+			.filter(m -> m.getType() == CashMovementType.LOAN_FEE && YearMonth.from(m.getMovementDate()).equals(month))
+			.map(CashMovement::getAmount)
+			.reduce(BigDecimal.ZERO, BigDecimal::add);
+		return accruedIn(f, month, today).add(fees);
+	}
+
+	private static BigDecimal accruedIn(LoanFacts f, YearMonth month, LocalDate today) {
 		Loan loan = f.loan();
-		if (loan.getType() == LoanType.CREDIT) {
+		if (loan.getRepaymentMethod() == RepaymentMethod.MONTHLY_FIXED) {
 			List<Installment> schedule = InstallmentCalculator.schedule(f.installmentInput());
 			Set<YearMonth> scheduled = schedule.stream().map(Installment::period).collect(Collectors.toSet());
 			// 全部提前還清時記的最後一段利息不在攤還表裡，算在記帳那天的月份
@@ -585,7 +749,8 @@ public class LoanService {
 	 * 回傳轉成比率的年利率（2.5 → 0.025）。
 	 * 借款與它的現金異動照真實日期記；早於帳戶初始現金餘額日期的不影響餘額，所以不檢查帳戶起點（DR-047）。
 	 */
-	private BigDecimal validate(LoanForm form) {
+	private BigDecimal validate(LoanForm form, RepaymentMethod method) {
+		checkMethodFields(form, method);
 		validateBasics(form);
 		if (form.type() == null) {
 			throw new LoanValidationException("請選擇類型");
@@ -613,7 +778,7 @@ public class LoanService {
 		if (form.startDate().isAfter(today())) {
 			throw new LoanValidationException("起算日不能晚於今天");
 		}
-		if (form.type() == LoanType.CREDIT) {
+		if (method == RepaymentMethod.MONTHLY_FIXED) {
 			if (form.remainingPeriods() == null || form.remainingPeriods() < 1
 					|| form.remainingPeriods() > MAX_PERIODS) {
 				throw new LoanValidationException("剩餘期數要在 1～600 期");
@@ -627,7 +792,7 @@ public class LoanService {
 				throw new LoanValidationException("第一期扣款日要在起算日之後");
 			}
 		}
-		if (form.type() == LoanType.PLEDGE && form.dueDate() != null && form.dueDate().isBefore(form.startDate())) {
+		if (method != RepaymentMethod.MONTHLY_FIXED && form.dueDate() != null && form.dueDate().isBefore(form.startDate())) {
 			throw new LoanValidationException("到期日不能早於起算日");
 		}
 		findMyAccount(form.payAccountId(), "請選擇扣款帳戶");
@@ -638,6 +803,34 @@ public class LoanService {
 			throw new LoanValidationException("既有借款不用選撥入帳戶");
 		}
 		return rate;
+	}
+
+	/**
+	 * 還款方式和欄位要對得上（spec 4.8a-1、DR-048）：不能只靠畫面藏欄位。form.repaymentMethod() 為 null 的是
+	 * V11 以前的寫法（舊的信貸、質押），只檢查資料庫一定要有的欄位。
+	 */
+	private static void checkMethodFields(LoanForm form, RepaymentMethod method) {
+		boolean newStyle = form.repaymentMethod() != null;
+		if (method != RepaymentMethod.MONTHLY_FIXED && form.remainingPeriods() != null) {
+			throw new LoanValidationException(method.label() + "不用填總期數");
+		}
+		if (method == RepaymentMethod.BULLET || (newStyle && method == RepaymentMethod.INTEREST_ONLY)) {
+			if (form.dueDate() == null) {
+				throw new LoanValidationException("請填到期日");
+			}
+		}
+		if (method == RepaymentMethod.MONTHLY_FIXED && newStyle) {
+			if (form.monthlyPayment() == null) {
+				throw new LoanValidationException("請填銀行每月扣款金額");
+			}
+			checkAmount(form.monthlyPayment(), "每月扣款金額");
+		}
+		else if (form.monthlyPayment() != null) {
+			throw new LoanValidationException(method.label() + "不用填每月扣款金額");
+		}
+		if (form.fee() != null && form.fee().signum() != 0) {
+			checkAmount(form.fee(), "開辦費");
+		}
 	}
 
 	/** 新增與修改共用：名稱、銀行、扣款日、扣款帳戶。 */

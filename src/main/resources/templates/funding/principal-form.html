@@ -27,6 +27,13 @@
 			<label for="amount">金額</label>
 			<input id="amount" type="text" inputmode="numeric" th:field="*{amount}" placeholder="整數元" required>
 
+			<!-- 到期一次還本金＋利息：利息和本金一起付，預設帶入到今天的應計利息（DR-048） -->
+			<th:block th:if="${!redraw and loan.repaymentMethod.name() == 'BULLET'}">
+				<label for="interest">同時付的利息</label>
+				<input id="interest" type="text" inputmode="numeric" th:field="*{interest}" placeholder="整數元">
+				<p class="muted">系統帶入的是到今天的應計利息，請照銀行實際收的金額改。</p>
+			</th:block>
+
 			<label for="accountId" th:text="${redraw} ? '撥入帳戶' : '扣款帳戶'">扣款帳戶</label>
 			<select id="accountId" th:field="*{accountId}">
 				<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">土銀帳戶</option>

@@ -26,6 +26,13 @@
 			<span th:text="|${r.period()} ${r.itemName()}還沒填|">2026-10 生活費還沒填</span> ·
 			<a th:href="@{/recurring}">去固定收支填金額</a>
 		</p>
+		<p class="alert" th:each="d : ${v.dueReminders()}" th:classappend="${d.daysToDue() < 0} ? 'alert-error' : 'alert-warning'">
+			<span th:text="|${d.loanName()} ${d.dueDate()} 到期|">玉山質押 2027-07-28 到期</span>
+			<span th:if="${d.daysToDue() >= 0}" th:text="|（還有 ${d.daysToDue()} 天）|">（還有 10 天）</span>
+			<span th:if="${d.daysToDue() < 0}" th:text="|（已經過期 ${d.overdueDays()} 天）|">（已經過期 5 天）</span>
+			<span th:if="${d.amountAtDue() != null}" th:text="|，要還約 ${@money.plain(d.amountAtDue())} 元|">，要還約 104,000 元</span> ·
+			<a th:href="@{/funding}">看資金來源</a>
+		</p>
 		<p class="alert" th:each="m : ${v.maintenance()}" th:if="${m.level() != 'OK'}"
 				th:classappend="${m.level() == 'CALL'} ? 'alert-error' : 'alert-warning'">
 			<span th:text="|${m.loanName()} 維持率 ${m.percent()}%，${m.level() == 'CALL' ? '低於追繳線 ' + m.callPercent() + '%' : '低於提醒線 ' + m.warnPercent() + '%'}|">玉山質押 維持率 146.88%，低於提醒線 150%</span> ·

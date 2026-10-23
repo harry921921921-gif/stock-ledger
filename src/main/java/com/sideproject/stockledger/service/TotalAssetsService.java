@@ -206,7 +206,7 @@ public class TotalAssetsService {
 		BigDecimal amount = m.getAmount();
 		Direction direction = switch (m.getType()) {
 			case DEPOSIT, LOAN_DISBURSEMENT, STOCK_SELL, DIVIDEND -> Direction.IN;
-			case WITHDRAWAL, LOAN_PRINCIPAL, LOAN_INTEREST, STOCK_BUY -> Direction.OUT;
+			case WITHDRAWAL, LOAN_PRINCIPAL, LOAN_INTEREST, LOAN_FEE, STOCK_BUY -> Direction.OUT;
 			case OPENING, TRANSFER -> Direction.NEUTRAL;
 			case RECONCILE -> Direction.NEUTRAL;
 		};

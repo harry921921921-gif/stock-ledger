@@ -487,7 +487,12 @@ public class TradeService {
 	}
 
 	/** 一檔持股的價值（總資產與資產配置排行用）。 */
-	public record HoldingValue(Long stockId, String label, BigDecimal value, boolean priced) {
+	/**
+	 * @param shares 目前持股（新增股票質押時勾選擔保持股用）
+	 * @param price  最新收盤價；沒有股價為 null
+	 */
+	public record HoldingValue(Long stockId, String label, BigDecimal value, boolean priced, long shares,
+			BigDecimal price) {
 	}
 
 	/** 目前持股的價值：有股價用市值，還沒有股價用成本（整數元）。 */
@@ -505,7 +510,8 @@ public class TradeService {
 			Stock s = stockById.get(pos.stockId());
 			BigDecimal price = latest.get(pos.stockId());
 			BigDecimal value = price == null ? pos.cost() : StockMetricsCalculator.marketValue(pos.shares(), price);
-			return new HoldingValue(pos.stockId(), s.getCode() + " " + s.getName(), whole(value), price != null);
+			return new HoldingValue(pos.stockId(), s.getCode() + " " + s.getName(), whole(value), price != null,
+					pos.shares(), price);
 		}).toList();
 	}
 

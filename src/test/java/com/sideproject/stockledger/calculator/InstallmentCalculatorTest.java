@@ -1,6 +1,7 @@
 package com.sideproject.stockledger.calculator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -133,6 +134,56 @@ class InstallmentCalculatorTest {
 				List.of(new RateChange(LocalDate.of(2026, 1, 1), RATE)), List.of(), Map.of());
 
 		assertThat(InstallmentCalculator.schedule(in).get(1).dueDate()).isEqualTo(LocalDate.of(2026, 2, 28));
+	}
+
+	// ---------- 每月扣款以銀行金額為準（spec 4.8a-4、DR-048）：40 萬、2.15%、84 期、銀行每月扣 5,133 ----------
+
+	private static final YearMonth MARCH = YearMonth.of(2026, 3);
+
+	/** 第 1 期利息 ＝ ceil(400,000 × 2.15% ÷ 12) ＝ ceil(716.67) ＝ 717；本金 ＝ 5,133 − 717 ＝ 4,416。 */
+	@Test
+	void bankPaymentIsUsed() {
+		Installment first = InstallmentCalculator.schedule(bank(List.of(payment("2026-02-01", "5133")))).get(0);
+
+		assertThat(first.interest()).isEqualByComparingTo("717");
+		assertThat(first.principal()).isEqualByComparingTo("4416");
+	}
+
+	@Test
+	void lastPeriodTakesRemainder() {
+		List<Installment> s = InstallmentCalculator.schedule(bank(List.of(payment("2026-02-01", "5133"))));
+
+		assertThat(s).hasSize(84);
+		assertThat(s.get(83).principal()).isEqualByComparingTo(s.get(82).remainingAfter());
+		assertThat(s.get(83).remainingAfter()).isEqualByComparingTo("0");
+	}
+
+	/** 第 13 期（2027-03-01）起銀行改扣 5,200：從那一期起用新的金額。 */
+	@Test
+	void paymentChangeFromLaterPeriod() {
+		List<Installment> s = InstallmentCalculator.schedule(bank(List.of(payment("2026-02-01", "5133"),
+				payment("2027-03-01", "5200"))));
+
+		assertThat(s.get(11).principal().add(s.get(11).interest())).isEqualByComparingTo("5133");
+		assertThat(s.get(12).principal().add(s.get(12).interest())).isEqualByComparingTo("5200");
+	}
+
+	/** 扣款比當期利息少（填錯）：本金會變負數，擋下。 */
+	@Test
+	void paymentBelowInterestRejected() {
+		assertThatThrownBy(() -> InstallmentCalculator.schedule(bank(List.of(payment("2026-02-01", "500")))))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("每月扣款 500 元比當期利息 717 元少");
+	}
+
+	private static InstallmentCalculator.Input bank(List<PaymentChange> payments) {
+		return new InstallmentCalculator.Input(P, 84, MARCH, 1,
+				List.of(new RateChange(LocalDate.of(2026, 2, 1), new BigDecimal("0.0215"))), List.of(), Map.of(),
+				payments);
+	}
+
+	private static PaymentChange payment(String date, String amount) {
+		return new PaymentChange(LocalDate.parse(date), new BigDecimal(amount));
 	}
 
 	private static InstallmentCalculator.Input input(List<RateChange> rates, List<PrincipalChange> prepayments,

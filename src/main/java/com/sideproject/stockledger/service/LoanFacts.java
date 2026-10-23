@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 
 import com.sideproject.stockledger.calculator.InstallmentCalculator;
 import com.sideproject.stockledger.calculator.PrincipalChange;
+import com.sideproject.stockledger.calculator.PaymentChange;
 import com.sideproject.stockledger.calculator.RateChange;
 import com.sideproject.stockledger.entity.CashMovement;
 import com.sideproject.stockledger.entity.CashMovementType;
@@ -22,8 +23,9 @@ import com.sideproject.stockledger.entity.LoanOrigin;
  * 讀取由 LoanService／LoanPostingService 負責（都只用這筆借款自己的 user_id）。
  *
  * @param movements 這筆借款的所有異動，舊的在前（含作廢的）
+ * @param payments  銀行每月扣款金額的版本（每月固定還款，DR-048）；V11 以前的借款是空的
  */
-record LoanFacts(Loan loan, List<RateChange> rates, List<CashMovement> movements) {
+record LoanFacts(Loan loan, List<RateChange> rates, List<CashMovement> movements, List<PaymentChange> payments) {
 
 	List<CashMovement> active() {
 		return movements.stream().filter(m -> !m.isVoided()).toList();
@@ -75,7 +77,7 @@ record LoanFacts(Loan loan, List<RateChange> rates, List<CashMovement> movements
 			.map(m -> new PrincipalChange(m.getMovementDate(), m.getAmount().negate()))
 			.toList();
 		return new InstallmentCalculator.Input(start, loan.getRemainingPeriods(), loan.getFirstPeriod(),
-				loan.getPayDay(), rates, prepayments, posted());
+				loan.getPayDay(), rates, prepayments, posted(), payments);
 	}
 
 	/**

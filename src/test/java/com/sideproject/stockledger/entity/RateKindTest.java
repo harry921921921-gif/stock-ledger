@@ -44,7 +44,8 @@ class RateKindTest {
 		assertThat(Arrays.stream(RateKind.values()).filter(k -> k.unit() == Unit.AMOUNT)).containsExactlyInAnyOrder(
 				RateKind.NHI_SUPPLEMENT_THRESHOLD,
 				RateKind.MIN_FEE_BOARD_LOT,
-				RateKind.MIN_FEE_ODD_LOT);
+				RateKind.MIN_FEE_ODD_LOT,
+				RateKind.LOAN_MONTHLY_PAYMENT);
 	}
 
 	/** 資料庫 kind 欄位是 VARCHAR(40)（Task 6），名稱不能超過。 */

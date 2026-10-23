@@ -24,6 +24,13 @@
 			<label for="annualRatePercent">年利率（%）</label>
 			<input id="annualRatePercent" type="text" inputmode="decimal" th:field="*{annualRatePercent}" placeholder="例如 2.75" required>
 
+			<!-- 每月固定還款：銀行的扣款金額跟著利率一起換（DR-048） -->
+			<th:block th:if="${loan.repaymentMethod.name() == 'MONTHLY_FIXED'}">
+				<label for="monthlyPayment">新的每月扣款金額（照銀行，選填）</label>
+				<input id="monthlyPayment" type="text" inputmode="numeric" th:field="*{monthlyPayment}" placeholder="例如 5200">
+				<p class="muted">沒填就沿用目前的扣款金額。</p>
+			</th:block>
+
 			<div class="form-actions">
 				<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">儲存</button>
 				<a class="btn btn-link" th:href="@{/funding}">取消</a>

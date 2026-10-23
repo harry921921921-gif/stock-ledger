@@ -5,10 +5,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,7 +26,11 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.sideproject.stockledger.TestcontainersConfig;
+import com.sideproject.stockledger.dto.LoanForm;
 import com.sideproject.stockledger.entity.AppUser;
+import com.sideproject.stockledger.entity.LoanOrigin;
+import com.sideproject.stockledger.entity.LoanType;
+import com.sideproject.stockledger.entity.RepaymentMethod;
 import com.sideproject.stockledger.entity.Role;
 import com.sideproject.stockledger.repository.AppUserRepository;
 
@@ -37,6 +43,9 @@ class OverviewControllerTest {
 
 	@Autowired
 	private MockMvc mvc;
+
+	@Autowired
+	private com.sideproject.stockledger.service.LoanService loans;
 
 	@Autowired
 	private AppUserRepository users;
@@ -88,6 +97,22 @@ class OverviewControllerTest {
 			.andExpect(content().string(containsString(">+5,000<")))
 			.andExpect(content().string(containsString("淨資產變動拆解")))
 			.andExpect(content().string(containsString("資金移動")));
+	}
+
+	/** 到期前 30 天提醒（spec 4.8a-5）：10 天後到期的質押顯示在總覽。 */
+	@Test
+	@WithUserDetails(value = "ov-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void dueReminderShown() throws Exception {
+		jdbc.update("INSERT INTO cash_account (user_id, name, type, institution, created_at) "
+				+ "VALUES (?, '玉山帳戶', 'BANK_DEMAND', '玉山', NOW())", amyId);
+		Long account = jdbc.queryForObject("SELECT id FROM cash_account WHERE user_id = ?", Long.class, amyId);
+		LocalDate due = today.plusDays(10);
+		loans.create(new LoanForm("玉山質押", LoanType.PLEDGE, "玉山銀行", LoanOrigin.NEW, null, today.minusMonths(3),
+				new BigDecimal("100000"), new BigDecimal("4"), account, account, null, null, null, due,
+				RepaymentMethod.BULLET, null, null, List.of(), null, null));
+
+		mvc.perform(get("/"))
+			.andExpect(content().string(containsString("玉山質押 " + due + " 到期")));
 	}
 
 	/** 切換到上個月；未來的月份當作本月。 */

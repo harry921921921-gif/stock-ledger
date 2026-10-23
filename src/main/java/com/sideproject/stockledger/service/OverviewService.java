@@ -17,6 +17,7 @@ import com.sideproject.stockledger.calculator.NetWorthCalculator;
 import com.sideproject.stockledger.dto.FundingView;
 import com.sideproject.stockledger.dto.LoanCard;
 import com.sideproject.stockledger.dto.OverviewView;
+import com.sideproject.stockledger.dto.OverviewView.DueReminder;
 import com.sideproject.stockledger.dto.OverviewView.FlowRow;
 import com.sideproject.stockledger.dto.OverviewView.MaintenanceRow;
 import com.sideproject.stockledger.dto.StocksView;
@@ -78,7 +79,11 @@ public class OverviewService {
 				NetWorthCalculator.leveragePercent(debt, assets.totalAssets()).orElse(null), month,
 				month.isAfter(EARLIEST) ? month.minusMonths(1) : null, month.equals(current) ? null : month.plusMonths(1),
 				month.equals(current) ? assets.monthChange() : totalAssets.monthChange(month), stocks.returnPercent(),
-				loanNetGain, maintenance, assets.reminders(), flows(month), stocks.holdings(), stocks.priceDate());
+				loanNetGain, maintenance, assets.reminders(), flows(month), stocks.holdings(), stocks.priceDate(),
+				funding.loans().stream()
+					.filter(LoanCard::dueSoon)
+					.map(c -> new DueReminder(c.name(), c.dueDate(), c.daysToDue(), c.amountAtDue()))
+					.toList());
 	}
 
 	/** 這個月沒作廢的資金移動，依類型加總。 */
