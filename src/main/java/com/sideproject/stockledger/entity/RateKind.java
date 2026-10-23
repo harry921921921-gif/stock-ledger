@@ -24,7 +24,9 @@ public enum RateKind {
 	BROKERAGE_DISCOUNT("手續費折扣", Scope.PERSONAL, Unit.RATIO),
 	MIN_FEE_BOARD_LOT("整股最低手續費", Scope.PERSONAL, Unit.AMOUNT),
 	MIN_FEE_ODD_LOT("零股最低手續費", Scope.PERSONAL, Unit.AMOUNT),
-	LOAN_ANNUAL_RATE("借款年利率", Scope.LOAN, Unit.RATIO);
+	LOAN_ANNUAL_RATE("借款年利率", Scope.LOAN, Unit.RATIO),
+	MAINTENANCE_WARN("維持率提醒線", Scope.LOAN, Unit.RATIO),
+	MAINTENANCE_CALL("維持率追繳線", Scope.LOAN, Unit.RATIO);
 
 	/** LOAN：綁定某一筆借款的費率（V9 的 loan_id），在資金來源頁設定，不出現在設定頁的費率表。 */
 	public enum Scope {

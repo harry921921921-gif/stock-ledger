@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -22,10 +23,16 @@ import com.sideproject.stockledger.calculator.Installment;
 import com.sideproject.stockledger.calculator.InstallmentCalculator;
 import com.sideproject.stockledger.calculator.LoanAccrualCalculator;
 import com.sideproject.stockledger.calculator.LoanRateCalculator;
+import com.sideproject.stockledger.calculator.LoanUsage;
+import com.sideproject.stockledger.calculator.Portfolio;
+import com.sideproject.stockledger.calculator.Position;
+import com.sideproject.stockledger.calculator.StockMetricsCalculator;
 import com.sideproject.stockledger.calculator.RateChange;
+import com.sideproject.stockledger.dto.CollateralLine;
 import com.sideproject.stockledger.dto.FundingView;
 import com.sideproject.stockledger.dto.LoanCard;
 import com.sideproject.stockledger.dto.LoanForm;
+import com.sideproject.stockledger.dto.LoanHoldingLine;
 import com.sideproject.stockledger.dto.PrincipalForm;
 import com.sideproject.stockledger.dto.RateVersionForm;
 import com.sideproject.stockledger.entity.CashAccount;
@@ -34,11 +41,16 @@ import com.sideproject.stockledger.entity.CashMovementType;
 import com.sideproject.stockledger.entity.Loan;
 import com.sideproject.stockledger.entity.LoanOrigin;
 import com.sideproject.stockledger.entity.LoanType;
+import com.sideproject.stockledger.entity.PledgeCollateral;
+import com.sideproject.stockledger.entity.RateKind;
 import com.sideproject.stockledger.entity.RateSetting;
+import com.sideproject.stockledger.entity.Stock;
 import com.sideproject.stockledger.repository.CashAccountRepository;
 import com.sideproject.stockledger.repository.CashMovementRepository;
 import com.sideproject.stockledger.repository.LoanRepository;
+import com.sideproject.stockledger.repository.PledgeCollateralRepository;
 import com.sideproject.stockledger.repository.RateSettingRepository;
+import com.sideproject.stockledger.repository.StockRepository;
 import com.sideproject.stockledger.security.CurrentUser;
 
 /**
@@ -52,6 +64,9 @@ public class LoanService {
 	private static final BigDecimal MAX_AMOUNT = new BigDecimal("1e12");
 	private static final BigDecimal MAX_RATE_PERCENT = new BigDecimal("30");
 	private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
+	/** 維持率門檻沒設定時（DR-007）：提醒線 150%、追繳線 130%。 */
+	private static final BigDecimal DEFAULT_WARN = new BigDecimal("150");
+	private static final BigDecimal DEFAULT_CALL = new BigDecimal("130");
 	private static final int MAX_NAME_LENGTH = 50;
 	private static final int MAX_PERIODS = 600;
 
@@ -69,10 +84,17 @@ public class LoanService {
 	private final MoneyFormatter money;
 	private final CurrentUser currentUser;
 	private final Clock clock;
+	private final TradeService tradeService;
+	private final StockRepository stocks;
+	private final PledgeCollateralRepository collaterals;
 
 	public LoanService(LoanRepository loans, RateSettingRepository rates, CashAccountRepository accounts,
 			CashMovementRepository movements, LoanFactsReader facts, LoanPostingService posting,
-			CashMovementService cashMovements, MoneyFormatter money, CurrentUser currentUser, Clock clock) {
+			CashMovementService cashMovements, MoneyFormatter money, CurrentUser currentUser, Clock clock,
+			TradeService tradeService, StockRepository stocks, PledgeCollateralRepository collaterals) {
+		this.tradeService = tradeService;
+		this.stocks = stocks;
+		this.collaterals = collaterals;
 		this.cashMovements = cashMovements;
 		this.loans = loans;
 		this.rates = rates;
@@ -153,6 +175,7 @@ public class LoanService {
 		loan.change(merged.name(), merged.bank(), merged.originalAmount(), merged.payAccountId(), merged.payDay(),
 				merged.dueDate(), YearMonth.from(today()));
 		posting.postDue(loan, today());
+		requireLoansCovered();
 		return loan;
 	}
 
@@ -189,6 +212,7 @@ public class LoanService {
 		}
 		// 質押還清時，當天要記最後一段利息
 		posting.postDue(loan, today());
+		requireLoansCovered();
 		return saved;
 	}
 
@@ -211,8 +235,77 @@ public class LoanService {
 	@Transactional
 	public void voidLoan(Long id, String reason) {
 		Loan loan = findForUpdate(id);
+		if (tradeService.loanInUse(loan.getId())) {
+			throw new LoanValidationException("還有股票交易用到這筆借款當資金來源；請先修改或作廢那些交易");
+		}
 		cashMovements.voidLoanMovements(loan.getId(), reason);
 		loan.markVoided();
+	}
+
+	/**
+	 * 設定質押的擔保股票股數（spec 5.5）；0 ＝ 拿掉。股數不能超過目前持有股數。
+	 * 擔保品是設定、不是事件，所以直接改或刪（我的判斷，見問題清單）。
+	 */
+	@Transactional
+	public void setCollateral(Long id, String stockCode, Long shares) {
+		Loan loan = findForUpdate(id);
+		if (loan.getType() != LoanType.PLEDGE) {
+			throw new LoanValidationException("只有質押要設定擔保股票");
+		}
+		if (stockCode == null || stockCode.isBlank()) {
+			throw new LoanValidationException("請輸入股票代號");
+		}
+		Stock stock = stocks.findByCode(stockCode.strip())
+			.orElseThrow(() -> new LoanValidationException("找不到這個上市股票代號：" + stockCode.strip()));
+		if (shares == null || shares < 0) {
+			throw new LoanValidationException("請輸入擔保股數（0 表示拿掉）");
+		}
+		Long userId = currentUser.id();
+		Optional<PledgeCollateral> existing = collaterals.findByUserIdAndLoanIdAndStockId(userId, loan.getId(),
+				stock.getId());
+		if (shares == 0) {
+			existing.ifPresent(collaterals::delete);
+			return;
+		}
+		Position position = tradeService.portfolio().positions().get(stock.getId());
+		long held = position == null ? 0 : position.shares();
+		// 同一檔股票可能同時擔保好幾筆質押：合計不能超過持股
+		long otherLoans = collaterals.findByUserId(userId).stream()
+			.filter(c -> c.getStockId().equals(stock.getId()) && !c.getLoanId().equals(loan.getId()))
+			.mapToLong(PledgeCollateral::getShares)
+			.sum();
+		if (shares + otherLoans > held) {
+			throw new LoanValidationException(otherLoans == 0
+					? "擔保股數不能超過持有股數（" + money.plain(BigDecimal.valueOf(held)) + " 股）"
+					: "擔保股數加上其他質押的 " + money.plain(BigDecimal.valueOf(otherLoans)) + " 股，超過持有股數（"
+							+ money.plain(BigDecimal.valueOf(held)) + " 股）");
+		}
+		existing.ifPresentOrElse(c -> c.setShares(shares),
+				() -> collaterals.save(PledgeCollateral.of(userId, loan.getId(), stock.getId(), shares)));
+	}
+
+	/** 設定這筆質押的維持率提醒線與追繳線（%），從今天起生效（spec 5.5、DR-007；沒設定時 150%、130%）。 */
+	@Transactional
+	public void setThresholds(Long id, BigDecimal warnPercent, BigDecimal callPercent) {
+		Loan loan = findForUpdate(id);
+		if (loan.getType() != LoanType.PLEDGE) {
+			throw new LoanValidationException("只有質押有維持率");
+		}
+		if (warnPercent == null || callPercent == null) {
+			throw new LoanValidationException("請輸入提醒線與追繳線");
+		}
+		if (callPercent.signum() <= 0 || warnPercent.compareTo(new BigDecimal("1000")) > 0) {
+			throw new LoanValidationException("門檻要在 0% 到 1000% 之間");
+		}
+		if (warnPercent.compareTo(callPercent) <= 0) {
+			throw new LoanValidationException("提醒線要高於追繳線");
+		}
+		LocalDate effective = today().isBefore(loan.getStartDate()) ? loan.getStartDate() : today();
+		LocalDateTime now = LocalDateTime.now(clock);
+		rates.save(RateSetting.loanThreshold(currentUser.id(), loan.getId(), RateKind.MAINTENANCE_WARN,
+				warnPercent.divide(HUNDRED, 10, RoundingMode.HALF_UP), effective, now));
+		rates.save(RateSetting.loanThreshold(currentUser.id(), loan.getId(), RateKind.MAINTENANCE_CALL,
+				callPercent.divide(HUNDRED, 10, RoundingMode.HALF_UP), effective, now));
 	}
 
 	// ---------- 查詢 ----------
@@ -266,6 +359,7 @@ public class LoanService {
 		YearMonth month = YearMonth.from(today);
 		Map<Long, String> accountNames = accounts.findByUserIdOrderByIdAsc(currentUser.id()).stream()
 			.collect(Collectors.toMap(CashAccount::getId, CashAccount::getName));
+		StockContext stockContext = stockContext();
 		List<LoanCard> cards = new ArrayList<>();
 		List<LoanRateCalculator.Weighted> weights = new ArrayList<>();
 		BigDecimal debt = BigDecimal.ZERO;
@@ -278,14 +372,14 @@ public class LoanService {
 			debt = debt.add(remaining);
 			interest = interest.add(monthInterest);
 			weights.add(new LoanRateCalculator.Weighted(remaining, rate));
-			cards.add(card(loan, f, remaining, rate, monthInterest, accountNames, today));
+			cards.add(card(loan, f, remaining, rate, monthInterest, accountNames, today, stockContext));
 		}
 		BigDecimal weighted = LoanRateCalculator.weightedAverage(weights).map(LoanService::percent).orElse(null);
 		return new FundingView(debt, weighted, interest.setScale(0, RoundingMode.HALF_UP), cards);
 	}
 
 	private LoanCard card(Loan loan, LoanFacts f, BigDecimal remaining, BigDecimal rate, BigDecimal monthInterest,
-			Map<Long, String> accountNames, LocalDate today) {
+			Map<Long, String> accountNames, LocalDate today, StockContext sc) {
 		boolean paidOff = remaining.signum() <= 0;
 		BigDecimal paidInterest = f.active().stream()
 			.filter(m -> m.getType() == CashMovementType.LOAN_INTEREST)
@@ -310,11 +404,114 @@ public class LoanService {
 			nextAmount = DailyInterestCalculator.roundUp(
 					DailyInterestCalculator.interest(f.startBalance(), f.principalChanges(), f.rates(), from, nextDue));
 		}
+		LoanUsage usage = sc.portfolio().loans().get(loan.getId());
+		BigDecimal undeployed = usage == null ? remaining : usage.undeployed();
+		List<LoanHoldingLine> deployedIn = new ArrayList<>();
+		BigDecimal unrealized = BigDecimal.ZERO;
+		for (Position pos : sc.portfolio().positions().values()) {
+			BigDecimal tag = pos.loanTags().getOrDefault(loan.getId(), BigDecimal.ZERO);
+			if (tag.signum() <= 0 || pos.shares() == 0) {
+				continue;
+			}
+			deployedIn.add(new LoanHoldingLine(sc.label(pos.stockId()), whole(tag)));
+			BigDecimal price = sc.prices().get(pos.stockId());
+			BigDecimal loanShares = pos.loanShares().get(loan.getId());
+			if (price != null && loanShares != null) {
+				// 這筆借款在這檔股票的市值 ＝ 借款買到的股數 × 收盤價（不分到別批較便宜買進的漲幅）
+				unrealized = unrealized.add(loanShares.multiply(price).subtract(tag));
+			}
+		}
+		BigDecimal netGain = usage == null ? paidInterest.negate()
+				: unrealized.add(usage.realized()).add(usage.dividends()).subtract(paidInterest);
+
+		List<CollateralLine> collateral = new ArrayList<>();
+		BigDecimal maintenance = null;
+		String level = null;
+		BigDecimal warn = null;
+		BigDecimal call = null;
+		if (loan.getType() == LoanType.PLEDGE) {
+			LocalDate on = today.isBefore(loan.getStartDate()) ? loan.getStartDate() : today;
+			warn = percentOrDefault(threshold(loan, RateKind.MAINTENANCE_WARN, on), DEFAULT_WARN);
+			call = percentOrDefault(threshold(loan, RateKind.MAINTENANCE_CALL, on), DEFAULT_CALL);
+			BigDecimal collateralValue = BigDecimal.ZERO;
+			boolean priced = false;
+			for (PledgeCollateral c : sc.collateralByLoan().getOrDefault(loan.getId(), List.of())) {
+				BigDecimal price = sc.prices().get(c.getStockId());
+				BigDecimal value = price == null ? null : StockMetricsCalculator.marketValue(c.getShares(), price);
+				if (value != null) {
+					collateralValue = collateralValue.add(value);
+					priced = true;
+				}
+				collateral.add(new CollateralLine(sc.code(c.getStockId()), sc.label(c.getStockId()), c.getShares(),
+						value == null ? null : whole(value)));
+			}
+			if (priced && !paidOff) {
+				maintenance = StockMetricsCalculator.maintenancePercent(collateralValue, remaining).orElse(null);
+				level = maintenance == null ? null : StockMetricsCalculator.level(maintenance, warn, call).name();
+			}
+		}
 		return new LoanCard(loan.getId(), loan.getName(), loan.getBank(), loan.getType().label(),
 				loan.getOrigin().label(), loan.getType() == LoanType.CREDIT, loan.getType() == LoanType.PLEDGE,
 				whole(loan.getOriginalAmount()), whole(remaining), percent(rate),
-				monthInterest.setScale(0, RoundingMode.HALF_UP), whole(paidInterest), whole(remaining), nextDue,
-				nextAmount, periodsLeft, accountNames.getOrDefault(loan.getPayAccountId(), "—"), paidOff);
+				monthInterest.setScale(0, RoundingMode.HALF_UP), whole(paidInterest), whole(undeployed), nextDue,
+				nextAmount, periodsLeft, accountNames.getOrDefault(loan.getPayAccountId(), "—"), paidOff, deployedIn,
+				whole(netGain), collateral, maintenance, level, warn, call);
+	}
+
+	/** 資金來源頁要用的股票資料：投資組合、股名、最新股價、各質押的擔保股票。 */
+	private record StockContext(Portfolio portfolio, Map<Long, Stock> stocks, Map<Long, BigDecimal> prices,
+			Map<Long, List<PledgeCollateral>> collateralByLoan) {
+
+		String code(Long stockId) {
+			return stocks.get(stockId).getCode();
+		}
+
+		String label(Long stockId) {
+			Stock s = stocks.get(stockId);
+			return s.getCode() + " " + s.getName();
+		}
+
+	}
+
+	private StockContext stockContext() {
+		Portfolio portfolio = tradeService.portfolio();
+		Map<Long, List<PledgeCollateral>> byLoan = collaterals.findByUserId(currentUser.id()).stream()
+			.collect(Collectors.groupingBy(PledgeCollateral::getLoanId));
+		Set<Long> ids = new HashSet<>(portfolio.positions().keySet());
+		byLoan.values().forEach(list -> list.forEach(c -> ids.add(c.getStockId())));
+		Map<Long, Stock> stockById = ids.isEmpty() ? Map.of()
+				: stocks.findByIdIn(new ArrayList<>(ids)).stream().collect(Collectors.toMap(Stock::getId, s -> s));
+		return new StockContext(portfolio, stockById, tradeService.latestPrices(ids), byLoan);
+	}
+
+	/** 這筆質押某一天適用的維持率門檻（比率）；沒設定為 empty。 */
+	private Optional<BigDecimal> threshold(Loan loan, RateKind kind, LocalDate on) {
+		List<RateChange> versions = rates
+			.findByUserIdAndLoanIdOrderByEffectiveDateAscIdAsc(loan.getUserId(), loan.getId()).stream()
+			.filter(r -> r.getKind() == kind && !r.getEffectiveDate().isAfter(on))
+			.map(r -> new RateChange(r.getEffectiveDate(), r.getValue()))
+			.toList();
+		return versions.isEmpty() ? Optional.empty() : Optional.of(RateChange.rateOn(versions, on));
+	}
+
+	private static BigDecimal percentOrDefault(Optional<BigDecimal> ratio, BigDecimal defaultPercent) {
+		return ratio.map(r -> plainPercent(r.multiply(HUNDRED))).orElse(defaultPercent);
+	}
+
+	/** 去掉多餘的小數 0，但不變成 1.6E+2 這種科學記號（150、132.5）。 */
+	private static BigDecimal plainPercent(BigDecimal percent) {
+		BigDecimal stripped = percent.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros();
+		return stripped.scale() < 0 ? stripped.setScale(0) : stripped;
+	}
+
+	/** 借款作廢以外的改動（改本金、日期、還本）之後：買股票用掉的錢不能超過借到的。 */
+	private void requireLoansCovered() {
+		try {
+			tradeService.checkLoansCovered();
+		}
+		catch (TradeValidationException ex) {
+			throw new LoanValidationException(ex.getMessage());
+		}
 	}
 
 	/** 質押下一個繳息日：晚於今天、也晚於起算日的第一個繳息日。 */

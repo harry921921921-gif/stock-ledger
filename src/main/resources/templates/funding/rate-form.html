@@ -16,7 +16,6 @@
 		<p class="muted">銀行調整利率時新增一個版本。信貸從生效日之後的第一期起重算月付金；質押從生效日起按日計息。</p>
 
 		<form class="form-card" method="post" th:object="${form}" th:action="@{/funding/{id}/rate(id=${loan.id})}">
-			<p class="alert alert-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}">錯誤訊息</p>
 			<p class="alert alert-error" th:if="${#fields.hasErrors('*')}" th:each="e : ${#fields.errors('*')}" th:text="${e}">錯誤訊息</p>
 
 			<label for="effectiveDate">生效日</label>

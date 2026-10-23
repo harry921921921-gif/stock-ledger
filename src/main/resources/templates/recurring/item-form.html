@@ -21,7 +21,6 @@
 		<!-- 新增送到 /recurring/new（帶一次性代號，防止連點存成兩筆）；修改送到 /recurring/{id}/edit -->
 		<form class="form-card" method="post" th:object="${form}" th:unless="${#lists.isEmpty(myAccounts)}"
 				th:action="${itemId == null} ? @{/recurring/new} : @{/recurring/{id}/edit(id=${itemId})}">
-			<p class="alert alert-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}">錯誤訊息</p>
 			<p class="alert alert-error" th:if="${#fields.hasErrors('*')}" th:each="e : ${#fields.errors('*')}" th:text="${e}">錯誤訊息</p>
 			<input type="hidden" name="formToken" th:if="${itemId == null}" th:value="${formToken}">
 

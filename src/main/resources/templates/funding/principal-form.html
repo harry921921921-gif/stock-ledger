@@ -18,7 +18,6 @@
 
 		<form class="form-card" method="post" th:object="${form}"
 				th:action="${redraw} ? @{/funding/{id}/redraw(id=${loan.id})} : @{/funding/{id}/repay(id=${loan.id})}">
-			<p class="alert alert-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}">錯誤訊息</p>
 			<p class="alert alert-error" th:if="${#fields.hasErrors('*')}" th:each="e : ${#fields.errors('*')}" th:text="${e}">錯誤訊息</p>
 			<input type="hidden" name="formToken" th:value="${formToken}">
 

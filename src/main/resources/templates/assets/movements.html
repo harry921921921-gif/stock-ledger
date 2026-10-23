@@ -64,7 +64,9 @@
 					<td>
 						<th:block th:unless="${m.voided()}">
 							<a th:href="@{/assets/movements/{id}/edit(id=${m.id()})}">修改</a>
+							<!-- 股票交易自動記的那筆：要到股票頁作廢交易，這裡不給作廢 -->
 							<form class="inline-form" method="post" th:action="@{/assets/movements/{id}/void(id=${m.id()})}"
+									th:unless="${m.fromTrade()}"
 									data-confirm="確定要作廢這筆嗎？作廢後不再計入金額，但會留下紀錄。">
 								<input type="text" name="reason" maxlength="200" placeholder="作廢原因（可不填）"
 										th:attr="aria-label=|作廢 ${m.date()} 這筆的原因|">

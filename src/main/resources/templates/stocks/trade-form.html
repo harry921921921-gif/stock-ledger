@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title th:text="${tradeId == null} ? '新增交易 · 台股資產帳本' : '修改交易 · 台股資產帳本'">新增交易 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('stocks')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/stocks}">股票</a></p>
+		<h1 th:text="${tradeId == null} ? '新增交易' : '修改交易'">新增交易</h1>
+		<p class="muted" th:if="${tradeId == null}">手續費、證交稅、賣出的實際入帳可以空白，系統會依設定頁的費率自動算；和對帳單不同時直接填對帳單的數字。買進與賣出會自動在交割帳戶記一筆現金異動。</p>
+		<p class="muted" th:if="${tradeId != null}">類型與股票不能改；要改就作廢後重新記一筆。改了價格或股數時，手續費、證交稅、實際入帳如果沒有跟著改，系統會依新的數字重算。每個改到的欄位都會留下修改紀錄。</p>
+
+		<!-- 新增送到 /stocks/trades/new（帶一次性代號，防止連點存成兩筆）；修改送到 /stocks/trades/{id}/edit -->
+		<form class="form-card" method="post" th:object="${form}"
+				th:action="${tradeId == null} ? @{/stocks/trades/new} : @{/stocks/trades/{id}/edit(id=${tradeId})}">
+			<p class="alert alert-error" th:if="${#fields.hasErrors('*')}" th:each="e : ${#fields.errors('*')}" th:text="${e}">錯誤訊息</p>
+			<input type="hidden" name="formToken" th:if="${tradeId == null}" th:value="${formToken}">
+
+			<th:block th:if="${tradeId == null}">
+				<label for="type">類型</label>
+				<select id="type" th:field="*{type}">
+					<option th:each="t : ${tradeTypes}" th:value="${t}" th:text="${t.label()}">買進</option>
+				</select>
+				<p class="muted" data-show-source="type" data-show-for="OPENING">期初持股：開始用這個系統以前就有的股票，每檔一筆，日期要早於這檔股票的所有交易。</p>
+				<p class="muted" data-show-source="type" data-show-for="STOCK_DIVIDEND">配股：股票股利配發的股數，成本 0、不動用現金。</p>
+
+				<label for="stockCode">股票代號</label>
+				<input id="stockCode" type="text" th:field="*{stockCode}" maxlength="10" placeholder="例如：0056" required>
+			</th:block>
+			<th:block th:if="${tradeId != null}">
+				<p>
+					<span class="label-text">類型</span> <span th:text="*{type} != null ? *{type.label()} : '—'">買進</span>
+					<span class="label-text">股票</span> <span th:text="*{stockCode}">0056</span>
+				</p>
+				<input type="hidden" th:field="*{type}" id="type">
+				<input type="hidden" th:field="*{stockCode}">
+			</th:block>
+
+			<label for="date">日期</label>
+			<input id="date" type="date" th:field="*{date}" required>
+
+			<label for="shares">股數</label>
+			<input id="shares" type="number" min="1" step="1" th:field="*{shares}" placeholder="1 張 ＝ 1000 股" required>
+
+			<div data-show-source="type" data-show-for="OPENING BUY SELL">
+				<label for="price">價格</label>
+				<input id="price" type="text" inputmode="decimal" th:field="*{price}" placeholder="每股價格，最多 4 位小數">
+				<p class="muted" data-show-source="type" data-show-for="OPENING">期初持股填含手續費的平均成本。</p>
+				<p class="muted" data-show-source="type" data-show-for="BUY SELL">填成交價。</p>
+			</div>
+
+			<div data-show-source="type" data-show-for="BUY SELL">
+				<label for="accountId">交割帳戶</label>
+				<select id="accountId" th:field="*{accountId}">
+					<option value="">請選擇</option>
+					<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">玉山交割戶</option>
+				</select>
+
+				<label for="fee">手續費（可空白）</label>
+				<input id="fee" type="text" inputmode="numeric" th:field="*{fee}" placeholder="空白 ＝ 依費率自動算">
+			</div>
+
+			<div data-show-source="type" data-show-for="SELL">
+				<label for="tax">證交稅（可空白）</label>
+				<input id="tax" type="text" inputmode="numeric" th:field="*{tax}" placeholder="空白 ＝ 依費率自動算">
+
+				<label for="amount">實際入帳（可空白）</label>
+				<input id="amount" type="text" inputmode="numeric" th:field="*{amount}" placeholder="空白 ＝ 成交金額 − 手續費 − 證交稅">
+			</div>
+
+			<div data-show-source="type" data-show-for="OPENING BUY" th:unless="${#lists.isEmpty(myLoans)}">
+				<p class="label-text">資金來源（這筆的錢有多少是借來的）</p>
+				<p class="muted">只填借款出的金額，其餘算自有。借款出的錢不能超過它的「尚未投入」。</p>
+				<div class="allocation-grid">
+					<th:block th:each="loan, iter : ${myLoans}">
+						<label th:for="|allocation${iter.index}|" th:text="${loan.name}">玉山質押</label>
+						<input type="hidden" th:name="|allocations[${iter.index}].loanId|" th:value="${loan.id}">
+						<input type="text" inputmode="numeric" th:id="|allocation${iter.index}|"
+								th:name="|allocations[${iter.index}].amount|" placeholder="0"
+								th:value="${iter.index < form.allocations().size()} ? ${form.allocations()[iter.index].amount()} : ''">
+					</th:block>
+				</div>
+			</div>
+
+			<th:block th:if="${tradeId != null}">
+				<label for="reason">修改原因（可不填）</label>
+				<input id="reason" type="text" name="reason" maxlength="200" th:value="${param.reason}">
+			</th:block>
+
+			<div class="form-actions">
+				<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">儲存</button>
+				<a class="btn btn-secondary" th:href="@{/stocks}">取消</a>
+			</div>
+		</form>
+	</main>
+</div>
+</body>
+</html>

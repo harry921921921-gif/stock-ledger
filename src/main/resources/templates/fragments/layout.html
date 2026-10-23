@@ -3,14 +3,14 @@
 <body>
 <!--
 	左側選單（spec 第 3 節的六頁順序）。用法：<aside th:replace="~{fragments/layout :: sidebar('settings')}"></aside>
-	做好的頁面（總資產、資金來源、固定收支、設定）可以點，其他頁面先顯示成不可點的灰字。
+	六頁都可以點。
 -->
 <aside class="sidebar" th:fragment="sidebar(active)">
 	<div class="brand">台股資產帳本</div>
 	<nav>
-		<span class="nav-item disabled">總覽</span>
+		<a class="nav-item" th:classappend="${active == 'overview'} ? 'active'" th:href="@{/}">總覽</a>
 		<a class="nav-item" th:classappend="${active == 'assets'} ? 'active'" th:href="@{/assets}">總資產</a>
-		<span class="nav-item disabled">股票</span>
+		<a class="nav-item" th:classappend="${active == 'stocks'} ? 'active'" th:href="@{/stocks}">股票</a>
 		<a class="nav-item" th:classappend="${active == 'funding'} ? 'active'" th:href="@{/funding}">資金來源</a>
 		<a class="nav-item" th:classappend="${active == 'recurring'} ? 'active'" th:href="@{/recurring}">固定收支</a>
 		<a class="nav-item" th:classappend="${active == 'settings'} ? 'active'" th:href="@{/settings}">設定</a>

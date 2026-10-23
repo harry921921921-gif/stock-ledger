@@ -71,6 +71,10 @@ class FundingControllerTest {
 	void setUp() {
 		jdbc.update("DELETE FROM cash_movement_revision");
 		jdbc.update("DELETE FROM cash_movement");
+		jdbc.update("DELETE FROM source_allocation");
+		jdbc.update("DELETE FROM trade_revision");
+		jdbc.update("DELETE FROM trade");
+		jdbc.update("DELETE FROM pledge_collateral");
 		jdbc.update("DELETE FROM rate_setting WHERE loan_id IS NOT NULL");
 		jdbc.update("DELETE FROM loan");
 		jdbc.update("DELETE FROM recurring_item");
@@ -147,6 +151,27 @@ class FundingControllerTest {
 		mvc.perform(get("/funding"))
 			.andExpect(content().string(containsString(">300,000<")))
 			.andExpect(content().string(containsString("3.20%")));
+	}
+
+	/** 質押卡片：維持率門檻預設 150%／130%，可以改；擔保股票的錯誤用訊息顯示。 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void pledgeThresholdsAndCollateralViaForm() throws Exception {
+		Long loan = createPledge();
+		mvc.perform(get("/funding"))
+			.andExpect(content().string(containsString("擔保股票與維持率")))
+			.andExpect(content().string(containsString("150% ／ 130%")))
+			.andExpect(content().string(containsString("借款淨賺")));
+
+		mvc.perform(post("/funding/{id}/thresholds", loan).with(csrf()).param("warnPercent", "160")
+				.param("callPercent", "140"))
+			.andExpect(redirectedUrl("/funding"))
+			.andExpect(flash().attribute("message", "已更新「玉山質押」的維持率提醒線與追繳線"));
+		mvc.perform(post("/funding/{id}/collateral", loan).with(csrf()).param("stockCode", "9999")
+				.param("shares", "1000"))
+			.andExpect(flash().attribute("message", "找不到這個上市股票代號：9999"));
+
+		mvc.perform(get("/funding")).andExpect(content().string(containsString("160% ／ 140%")));
 	}
 
 	/** 作廢借款：卡片有確認框；作廢後不再出現在頁面上。 */

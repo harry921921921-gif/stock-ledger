@@ -1,5 +1,6 @@
 package com.sideproject.stockledger.controller;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 import jakarta.servlet.http.HttpSession;
@@ -170,6 +171,36 @@ public class FundingController {
 		try {
 			loans.voidLoan(id, reason);
 			redirect.addFlashAttribute("message", "已作廢「" + loan.getName() + "」和它的所有紀錄");
+		}
+		catch (LoanValidationException ex) {
+			redirect.addFlashAttribute("message", ex.getMessage());
+		}
+		return "redirect:/funding";
+	}
+
+	// ---------- 質押的擔保股票與維持率門檻 ----------
+
+	@PostMapping("/funding/{id}/collateral")
+	public String setCollateral(@PathVariable Long id, @RequestParam(required = false) String stockCode,
+			@RequestParam(required = false) Long shares, RedirectAttributes redirect) {
+		Loan loan = loans.find(id);
+		try {
+			loans.setCollateral(id, stockCode, shares);
+			redirect.addFlashAttribute("message", "已更新「" + loan.getName() + "」的擔保股票");
+		}
+		catch (LoanValidationException ex) {
+			redirect.addFlashAttribute("message", ex.getMessage());
+		}
+		return "redirect:/funding";
+	}
+
+	@PostMapping("/funding/{id}/thresholds")
+	public String setThresholds(@PathVariable Long id, @RequestParam(required = false) BigDecimal warnPercent,
+			@RequestParam(required = false) BigDecimal callPercent, RedirectAttributes redirect) {
+		Loan loan = loans.find(id);
+		try {
+			loans.setThresholds(id, warnPercent, callPercent);
+			redirect.addFlashAttribute("message", "已更新「" + loan.getName() + "」的維持率提醒線與追繳線");
 		}
 		catch (LoanValidationException ex) {
 			redirect.addFlashAttribute("message", ex.getMessage());

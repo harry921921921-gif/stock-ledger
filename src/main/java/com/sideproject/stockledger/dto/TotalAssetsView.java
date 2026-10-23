@@ -3,10 +3,10 @@ package com.sideproject.stockledger.dto;
 import java.math.BigDecimal;
 import java.util.List;
 
-import com.sideproject.stockledger.calculator.MonthlyCashChange;
+import com.sideproject.stockledger.calculator.MonthlyNetWorthChange;
 
 /**
- * 總資產頁需要的所有數字（spec 第 3 節第 2 頁）。這一版只有現金：stockValue 固定為 0。
+ * 總資產頁需要的所有數字（spec 第 3 節第 2 頁）。stockValue 是持股市值（還沒有股價的用成本）。
  *
  * @param cashSharePercent 現金占總資產 %；總資產 ≤ 0 時為 null
  * @param allocation       資產配置排行，由大到小
@@ -15,6 +15,6 @@ import com.sideproject.stockledger.calculator.MonthlyCashChange;
  * @param reminders        入帳日已經過了、還沒填的「每月自己填」期數（例如生活費），舊的在前
  */
 public record TotalAssetsView(BigDecimal totalAssets, BigDecimal stockValue, BigDecimal cash, int accountCount,
-		BigDecimal cashSharePercent, MonthlyCashChange monthChange, List<AllocationRow> allocation,
+		BigDecimal cashSharePercent, MonthlyNetWorthChange monthChange, List<AllocationRow> allocation,
 		AllocationRow largest, List<AccountCard> accounts, List<MovementRow> recent, List<UnfilledPeriod> reminders) {
 }

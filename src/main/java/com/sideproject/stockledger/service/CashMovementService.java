@@ -27,6 +27,7 @@ import com.sideproject.stockledger.entity.CashAccount;
 import com.sideproject.stockledger.entity.CashMovement;
 import com.sideproject.stockledger.entity.CashMovementRevision;
 import com.sideproject.stockledger.entity.CashMovementType;
+import com.sideproject.stockledger.entity.Trade;
 import com.sideproject.stockledger.repository.CashAccountRepository;
 import com.sideproject.stockledger.repository.CashMovementRepository;
 import com.sideproject.stockledger.repository.CashMovementRevisionRepository;
@@ -64,10 +65,12 @@ public class CashMovementService {
 	private final LoanFactsReader loanFacts;
 	private final CurrentUser currentUser;
 	private final Clock clock;
+	private final PortfolioReader portfolioReader;
 
 	public CashMovementService(CashMovementRepository movements, CashMovementRevisionRepository revisions,
 			CashAccountRepository accounts, LoanRepository loans, LoanFactsReader loanFacts, CurrentUser currentUser,
-			Clock clock) {
+			Clock clock, PortfolioReader portfolioReader) {
+		this.portfolioReader = portfolioReader;
 		this.movements = movements;
 		this.revisions = revisions;
 		this.accounts = accounts;
@@ -181,8 +184,8 @@ public class CashMovementService {
 	public CashMovement editLoanMovement(Long id, LoanMovementForm form, String reason) {
 		Long userId = currentUser.id();
 		CashMovement m = findMineForEdit(id);
-		if (!m.getType().isLoan()) {
-			throw new CashValidationException("這筆不是借款的紀錄");
+		if (!m.getType().isLoan() && m.getType() != CashMovementType.DIVIDEND) {
+			throw new CashValidationException("這筆不是借款或配息的紀錄");
 		}
 		checkPositiveWholeAmount(form.amount());
 		checkDate(form.date());
@@ -223,6 +226,19 @@ public class CashMovementService {
 		return count;
 	}
 
+	/**
+	 * 股票交易修改後，跟著改它自動記的那筆現金異動（日期、帳戶、金額），寫修改紀錄。由 TradeService 呼叫，
+	 * 交易已經確認是登入者的。
+	 */
+	@Transactional
+	public void followTrade(Long movementId, Trade trade, String reason) {
+		CashMovement m = findMineForEdit(movementId);
+		Map<String, String> before = snapshot(m);
+		m.followTrade(trade);
+		writeEditRevisions(m, before, cleanReason(reason));
+		flush(m);
+	}
+
 	/** 修改借款紀錄的表單預設值（金額轉成整數元）。 */
 	@Transactional(readOnly = true)
 	public LoanMovementForm loanMovementForm(Long id) {
@@ -234,6 +250,19 @@ public class CashMovementService {
 	@Transactional
 	public CashMovement voidMovement(Long id, String reason) {
 		CashMovement m = findMineForEdit(id);
+		if (m.getType().isTrade()) {
+			throw new CashValidationException("這筆是股票交易自動記的，請到股票頁作廢那筆交易");
+		}
+		return markVoided(m, reason);
+	}
+
+	/** 股票交易作廢時，連同它自動記的現金異動一起作廢（只給 TradeService 用）。 */
+	@Transactional
+	CashMovement voidForTrade(Long id, String reason) {
+		return markVoided(findMineForEdit(id), reason);
+	}
+
+	private CashMovement markVoided(CashMovement m, String reason) {
 		String cleanReason = cleanReason(reason);
 		revisions.save(CashMovementRevision.of(m.getId(), currentUser.id(), LocalDateTime.now(clock),
 				CashMovementRevision.VOID, "voided", "false", "true", cleanReason));
@@ -544,6 +573,10 @@ public class CashMovementService {
 			.ifPresent(f -> {
 				throw new CashValidationException(LoanService.NEGATIVE_PRINCIPAL);
 			});
+		// 撥款改少或作廢、還本提前：借款買股票用掉的錢不能超過那時已經借到的（DR-044）
+		portfolioReader.uncoveredLoan(currentUser.id()).ifPresent(message -> {
+			throw new CashValidationException(message);
+		});
 	}
 
 	// ---------- 存檔 ----------

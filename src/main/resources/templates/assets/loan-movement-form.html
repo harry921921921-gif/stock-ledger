@@ -3,7 +3,7 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>修改借款紀錄 · 台股資產帳本</title>
+	<title>修改紀錄 · 台股資產帳本</title>
 	<link rel="stylesheet" th:href="@{/css/app.css}">
 	<script th:src="@{/js/app.js}" defer></script>
 </head>
@@ -12,12 +12,11 @@
 	<aside th:replace="~{fragments/layout :: sidebar('assets')}"></aside>
 	<main class="content">
 		<p class="breadcrumb"><a th:href="@{/assets}">總資產</a> / <a th:href="@{/assets/movements}">全部異動</a></p>
-		<h1>修改借款紀錄</h1>
+		<h1 th:text="${movementType.name() == 'DIVIDEND'} ? '修改配息' : '修改借款紀錄'">修改借款紀錄</h1>
 		<p class="muted">只能改日期與金額，例如對上銀行的扣款明細。剩餘本金、之後的月付金與利息會依新的金額重新計算。</p>
 
 		<form class="form-card" method="post" th:object="${form}"
 				th:action="@{/assets/movements/{id}/edit-loan(id=${movementId})}">
-			<p class="alert alert-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}">錯誤訊息</p>
 			<p class="alert alert-error" th:if="${#fields.hasErrors('*')}" th:each="e : ${#fields.errors('*')}" th:text="${e}">錯誤訊息</p>
 
 			<p><span class="label-text">類型</span> <span th:text="${movementType.label()}">借款利息</span></p>

@@ -35,7 +35,8 @@
 			<div class="stat-card">
 				<span class="stat-label">股票</span>
 				<span class="stat-value" th:text="${@money.plain(v.stockValue())}">0</span>
-				<span class="stat-note">尚未有持股</span>
+				<span class="stat-note" th:if="${v.stockValue().signum() == 0}">尚未有持股</span>
+				<span class="stat-note" th:unless="${v.stockValue().signum() == 0}"><a th:href="@{/stocks}">看持股</a>（最新收盤價；還沒有股價的用成本）</span>
 			</div>
 			<div class="stat-card">
 				<span class="stat-label">現金</span>
@@ -50,12 +51,14 @@
 				<span class="stat-value" th:classappend="${v.monthChange().total().signum() < 0} ? 'negative' : ''"
 						th:text="${@money.signed(v.monthChange().total())}">+19,132</span>
 				<span class="stat-note">
-					存入 <span th:text="${@money.plain(v.monthChange().deposits())}">0</span>
+					股價漲跌 <span th:text="${@money.signed(v.monthChange().priceChange())}">0</span>
+					・賣出損益 <span th:text="${@money.signed(v.monthChange().realized())}">0</span>
+					・存入 <span th:text="${@money.plain(v.monthChange().deposits())}">0</span>
 					・支出 <span th:text="${@money.plain(v.monthChange().withdrawals())}">0</span>
+					・配息 <span th:text="${@money.plain(v.monthChange().dividends())}">0</span>
 					・利息 <span th:text="${@money.plain(v.monthChange().interest())}">0</span>
 					・餘額調整 <span th:text="${@money.signed(v.monthChange().adjustments())}">0</span>
 				</span>
-				<span class="stat-note muted">股票、配息完成後才會完整</span>
 			</div>
 		</section>
 

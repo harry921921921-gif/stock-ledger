@@ -87,6 +87,17 @@ public class RateSetting {
 		return rate;
 	}
 
+	/** 某一筆質押的維持率提醒線或追繳線版本（1.5 = 150%）。只新增、不修改。 */
+	public static RateSetting loanThreshold(Long userId, Long loanId, RateKind kind, BigDecimal ratio,
+			LocalDate effectiveDate, LocalDateTime now) {
+		if (kind != RateKind.MAINTENANCE_WARN && kind != RateKind.MAINTENANCE_CALL) {
+			throw new IllegalArgumentException("kind 要是維持率門檻");
+		}
+		RateSetting rate = loanRate(userId, loanId, ratio, effectiveDate, now);
+		rate.kind = kind;
+		return rate;
+	}
+
 	public RateCandidate toCandidate() {
 		return new RateCandidate(id, userId, effectiveDate, value);
 	}

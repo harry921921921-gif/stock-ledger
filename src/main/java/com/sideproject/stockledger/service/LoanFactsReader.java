@@ -5,6 +5,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.sideproject.stockledger.calculator.RateChange;
 import com.sideproject.stockledger.entity.Loan;
+import com.sideproject.stockledger.entity.RateKind;
 import com.sideproject.stockledger.repository.CashMovementRepository;
 import com.sideproject.stockledger.repository.RateSettingRepository;
 
@@ -27,6 +28,7 @@ class LoanFactsReader {
 	LoanFacts read(Loan loan) {
 		return new LoanFacts(loan,
 				rates.findByUserIdAndLoanIdOrderByEffectiveDateAscIdAsc(loan.getUserId(), loan.getId()).stream()
+					.filter(r -> r.getKind() == RateKind.LOAN_ANNUAL_RATE)
 					.map(r -> new RateChange(r.getEffectiveDate(), r.getValue()))
 					.toList(),
 				movements.findByUserIdAndLoanIdOrderByMovementDateAscIdAsc(loan.getUserId(), loan.getId()));

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>配息入帳 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('stocks')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/stocks}">股票</a></p>
+		<h1>配息入帳</h1>
+		<p class="muted">照存摺填實際入帳的日期與金額（已經扣掉二代健保）。會在帳戶記一筆「配息」，並算進這檔股票的累計配息與含息報酬率。</p>
+
+		<p class="muted" th:if="${#lists.isEmpty(myAccounts)}">還沒有現金帳戶，請先<a th:href="@{/settings/accounts/new}">新增帳戶</a>。</p>
+
+		<form class="form-card" method="post" th:object="${form}" th:action="@{/stocks/dividends/new}"
+				th:unless="${#lists.isEmpty(myAccounts)}">
+			<p class="alert alert-error" th:if="${#fields.hasErrors('*')}" th:each="e : ${#fields.errors('*')}" th:text="${e}">錯誤訊息</p>
+			<input type="hidden" name="formToken" th:value="${formToken}">
+
+			<label for="stockCode">股票代號</label>
+			<input id="stockCode" type="text" th:field="*{stockCode}" maxlength="10" placeholder="例如：0056" required>
+
+			<label for="date">入帳日</label>
+			<input id="date" type="date" th:field="*{date}" required>
+
+			<label for="accountId">入帳帳戶</label>
+			<select id="accountId" th:field="*{accountId}">
+				<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">玉山交割戶</option>
+			</select>
+
+			<label for="amount">實際入帳金額</label>
+			<input id="amount" type="text" inputmode="numeric" th:field="*{amount}" placeholder="整數元" required>
+
+			<label for="nhi">二代健保扣繳（可空白）</label>
+			<input id="nhi" type="text" inputmode="numeric" th:field="*{nhi}" placeholder="沒有扣就空白">
+
+			<div class="form-actions">
+				<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">儲存</button>
+				<a class="btn btn-secondary" th:href="@{/stocks}">取消</a>
+			</div>
+		</form>
+	</main>
+</div>
+</body>
+</html>

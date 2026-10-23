@@ -67,6 +67,10 @@ class CashAccountDuplicateRaceTest {
 		// 先刪參照帳戶的現金異動，否則外鍵會擋下
 		jdbc.update("DELETE FROM cash_movement_revision");
 		jdbc.update("DELETE FROM cash_movement");
+		jdbc.update("DELETE FROM source_allocation");
+		jdbc.update("DELETE FROM trade_revision");
+		jdbc.update("DELETE FROM trade");
+		jdbc.update("DELETE FROM pledge_collateral");
 		jdbc.update("DELETE FROM rate_setting WHERE loan_id IS NOT NULL");
 		jdbc.update("DELETE FROM loan");
 		jdbc.update("DELETE FROM recurring_item");

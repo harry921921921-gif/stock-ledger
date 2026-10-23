@@ -160,12 +160,14 @@ public class CashMovementController {
 				model.addAttribute("form", movements.movementForm(id));
 				yield MOVEMENT_FORM;
 			}
-			// 借款的撥款、還本、利息只能改日期與金額
-			case LOAN_DISBURSEMENT, LOAN_PRINCIPAL, LOAN_INTEREST -> {
+			// 借款的撥款、還本、利息與配息只能改日期與金額
+			case LOAN_DISBURSEMENT, LOAN_PRINCIPAL, LOAN_INTEREST, DIVIDEND -> {
 				model.addAttribute("form", movements.loanMovementForm(id));
 				model.addAttribute("movementType", m.getType());
 				yield LOAN_MOVEMENT_FORM;
 			}
+			// 買進、賣出股票由交易自動記：改交易
+			case STOCK_BUY, STOCK_SELL -> "redirect:/stocks/trades/" + m.getTradeId() + "/edit";
 		};
 	}
 

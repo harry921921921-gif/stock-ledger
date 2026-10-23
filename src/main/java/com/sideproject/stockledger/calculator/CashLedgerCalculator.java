@@ -41,8 +41,9 @@ public final class CashLedgerCalculator {
 			.sorted(ORDER)
 			.forEach(e -> {
 				switch (e.type()) {
-					case OPENING, DEPOSIT, LOAN_DISBURSEMENT -> add(balances, e.accountId(), e.amount());
-					case WITHDRAWAL, LOAN_PRINCIPAL, LOAN_INTEREST -> add(balances, e.accountId(), e.amount().negate());
+					case OPENING, DEPOSIT, LOAN_DISBURSEMENT, STOCK_SELL, DIVIDEND -> add(balances, e.accountId(), e.amount());
+					case WITHDRAWAL, LOAN_PRINCIPAL, LOAN_INTEREST, STOCK_BUY ->
+						add(balances, e.accountId(), e.amount().negate());
 					case TRANSFER -> {
 						add(balances, e.accountId(), e.amount().negate());
 						add(balances, e.toAccountId(), e.amount());
@@ -66,6 +67,7 @@ public final class CashLedgerCalculator {
 		BigDecimal deposits = BigDecimal.ZERO;
 		BigDecimal withdrawals = BigDecimal.ZERO;
 		BigDecimal adjusted = BigDecimal.ZERO;
+		BigDecimal dividends = BigDecimal.ZERO;
 		for (CashEvent e : events) {
 			if (!YearMonth.from(e.date()).equals(month)) {
 				continue;
@@ -74,16 +76,17 @@ public final class CashLedgerCalculator {
 				case DEPOSIT -> deposits = deposits.add(e.amount());
 				case WITHDRAWAL -> withdrawals = withdrawals.add(e.amount());
 				case RECONCILE -> adjusted = adjusted.add(adjustments.get(e.id()));
-				case OPENING, TRANSFER, LOAN_DISBURSEMENT, LOAN_PRINCIPAL -> {
-					// 不算變動：起點、左手換右手、借錢與還本金只改變資產形式（spec 4.3-2）
+				case DIVIDEND -> dividends = dividends.add(e.amount());
+				case OPENING, TRANSFER, LOAN_DISBURSEMENT, LOAN_PRINCIPAL, STOCK_BUY, STOCK_SELL -> {
+					// 不算變動：起點、左手換右手、借錢與還本金、買賣股票只改變資產形式（spec 4.3-2；賣出損益在總覽計算）
 				}
 				case LOAN_INTEREST -> {
 					// 不在這裡算：利息依應計制由 LoanAccrualCalculator 算好，用 withInterest 加進來，避免算兩次
 				}
 			}
 		}
-		return new MonthlyCashChange(deposits, withdrawals, BigDecimal.ZERO, adjusted,
-				deposits.subtract(withdrawals).add(adjusted));
+		return new MonthlyCashChange(deposits, withdrawals, dividends, BigDecimal.ZERO, adjusted,
+				deposits.subtract(withdrawals).add(dividends).add(adjusted));
 	}
 
 	private static void add(Map<Long, BigDecimal> balances, Long accountId, BigDecimal delta) {

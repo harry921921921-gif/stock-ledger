@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +20,7 @@ import com.sideproject.stockledger.calculator.CashEvent;
 import com.sideproject.stockledger.calculator.CashLedger;
 import com.sideproject.stockledger.calculator.CashLedgerCalculator;
 import com.sideproject.stockledger.calculator.MonthlyCashChange;
+import com.sideproject.stockledger.calculator.MonthlyNetWorthChange;
 import com.sideproject.stockledger.calculator.ShareCalculator;
 import com.sideproject.stockledger.dto.AccountCard;
 import com.sideproject.stockledger.dto.AllocationRow;
@@ -35,7 +37,7 @@ import com.sideproject.stockledger.entity.RecurringItem;
 
 /**
  * 總資產頁（spec 第 3 節第 2 頁、4.3、4.6）。所有數字在這裡算好，模板只顯示。
- * 這一版只有現金：股票市值固定為 0，等股票功能完成後補上。
+ * 股票用最新收盤價的市值（還沒有股價的用成本）。
  */
 @Service
 public class TotalAssetsService {
@@ -51,11 +53,13 @@ public class TotalAssetsService {
 	private final CashMovementService movements;
 	private final RecurringItemService recurringItems;
 	private final LoanService loans;
+	private final TradeService trades;
 	private final MoneyFormatter money;
 	private final Clock clock;
 
 	public TotalAssetsService(CashAccountService accounts, CashMovementService movements,
-			RecurringItemService recurringItems, LoanService loans, MoneyFormatter money, Clock clock) {
+			RecurringItemService recurringItems, LoanService loans, TradeService trades, MoneyFormatter money, Clock clock) {
+		this.trades = trades;
 		this.loans = loans;
 		this.accounts = accounts;
 		this.movements = movements;
@@ -73,25 +77,41 @@ public class TotalAssetsService {
 
 		BigDecimal cash = myAccounts.stream().map(a -> balanceOf(ledger, a.getId())).reduce(BigDecimal.ZERO,
 				BigDecimal::add);
-		BigDecimal stockValue = BigDecimal.ZERO;
+		List<TradeService.HoldingValue> holdings = trades.holdingValues();
+		BigDecimal stockValue = holdings.stream().map(TradeService.HoldingValue::value).reduce(BigDecimal.ZERO,
+				BigDecimal::add);
 		BigDecimal total = cash.add(stockValue);
 
-		List<AllocationRow> allocation = myAccounts.stream()
-			.map(a -> new AllocationRow(a.getName(), balanceOf(ledger, a.getId()), share(balanceOf(ledger, a.getId()), total)))
+		List<AllocationRow> allocation = Stream.concat(
+				holdings.stream().map(h -> new AllocationRow(h.label(), h.value(), share(h.value(), total))),
+				myAccounts.stream()
+					.map(a -> new AllocationRow(a.getName(), balanceOf(ledger, a.getId()), share(balanceOf(ledger, a.getId()), total))))
 			.sorted(Comparator.comparing(AllocationRow::amount).reversed().thenComparing(AllocationRow::name))
 			.toList();
 		AllocationRow largest = allocation.isEmpty() || allocation.get(0).amount().signum() <= 0 ? null
 				: allocation.get(0);
 
 		List<AccountCard> cards = myAccounts.stream().map(a -> card(a, ledger, events, today)).toList();
-		MonthlyCashChange monthChange = CashLedgerCalculator.monthlyChange(events, YearMonth.from(today))
-			.withInterest(loans.accruedInterest(YearMonth.from(today)));
+		MonthlyNetWorthChange monthChange = monthChange(events, YearMonth.from(today));
 
 		List<MovementRow> recent = rows(movements.listAll().stream().filter(m -> !m.isVoided()).limit(RECENT_COUNT)
 			.toList(), myAccounts, ledger);
 
 		return new TotalAssetsView(total, stockValue, cash, myAccounts.size(), share(cash, total), monthChange,
 				allocation, largest, cards, recent, recurringItems.overdueReminders());
+	}
+
+	/** 某個月的淨資產變動（總資產頁、總覽共用）：現金部分＋應計利息＋股價漲跌與賣出損益。 */
+	MonthlyNetWorthChange monthChange(List<CashEvent> events, YearMonth month) {
+		MonthlyCashChange cash = CashLedgerCalculator.monthlyChange(events, month)
+			.withInterest(loans.accruedInterest(month));
+		return MonthlyNetWorthChange.of(cash, trades.monthlyChange(month));
+	}
+
+	/** 某個月的淨資產變動（總覽切換月份用）。 */
+	@Transactional(readOnly = true)
+	public MonthlyNetWorthChange monthChange(YearMonth month) {
+		return monthChange(movements.activeEvents(), month);
 	}
 
 	/** 全部異動頁：某個月的所有異動（含作廢的），新的在前。 */
@@ -178,8 +198,8 @@ public class TotalAssetsService {
 		String description = m.getType().label() + (m.getNote() == null ? "" : " · " + m.getNote());
 		BigDecimal amount = m.getAmount();
 		Direction direction = switch (m.getType()) {
-			case DEPOSIT, LOAN_DISBURSEMENT -> Direction.IN;
-			case WITHDRAWAL, LOAN_PRINCIPAL, LOAN_INTEREST -> Direction.OUT;
+			case DEPOSIT, LOAN_DISBURSEMENT, STOCK_SELL, DIVIDEND -> Direction.IN;
+			case WITHDRAWAL, LOAN_PRINCIPAL, LOAN_INTEREST, STOCK_BUY -> Direction.OUT;
 			case OPENING, TRANSFER -> Direction.NEUTRAL;
 			case RECONCILE -> Direction.NEUTRAL;
 		};
@@ -191,7 +211,7 @@ public class TotalAssetsService {
 					: adjustment.signum() > 0 ? Direction.IN : Direction.OUT;
 		}
 		return new MovementRow(m.getId(), m.getMovementDate(), label, description, amount, direction, revised,
-				m.isVoided());
+				m.isVoided(), m.getType().isTrade());
 	}
 
 	private static BigDecimal balanceOf(CashLedger ledger, Long accountId) {

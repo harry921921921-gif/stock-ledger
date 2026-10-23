@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>股票 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<!-- 股票頁（spec 第 3 節第 3 頁）。所有數字都由 TradeService 算好，這裡只負責顯示。 -->
+<div class="app" th:with="v=${view}">
+	<aside th:replace="~{fragments/layout :: sidebar('stocks')}"></aside>
+	<main class="content">
+		<div class="page-header">
+			<div>
+				<h1>股票</h1>
+				<p class="muted">
+					<span th:if="${v.priceDate() != null}" th:text="|股價更新至 ${v.priceDate()}（證交所收盤價，每個交易日 18:30、21:30 自動更新）|">股價更新至 2026-10-22</span>
+					<span th:if="${v.priceDate() == null}">還沒有股價：系統啟動時和每個交易日 18:30、21:30 會向證交所抓收盤價。</span>
+				</p>
+			</div>
+			<div class="header-actions">
+				<a class="btn btn-secondary" th:href="@{/stocks/trades/new(type='OPENING')}">期初持股</a>
+				<a class="btn btn-secondary" th:href="@{/stocks/trades/new(type='SELL')}">賣出</a>
+				<a class="btn btn-secondary" th:href="@{/stocks/dividends/new}">配息入帳</a>
+				<a class="btn btn-primary" th:href="@{/stocks/trades/new(type='BUY')}">買進</a>
+			</div>
+		</div>
+
+		<p class="alert alert-info" th:if="${message}" th:text="${message}">已新增</p>
+		<p class="alert alert-warning" th:if="${v.stockListEmpty()}">上市股票清單還沒抓到（可能是網路問題），暫時不能輸入股票代號；系統會在下一次排程重試。</p>
+
+		<section class="stat-grid" aria-label="關鍵數字">
+			<div class="stat-card">
+				<span class="stat-label">持股市值</span>
+				<span class="stat-value" th:text="${@money.plain(v.marketValue())}">58,750</span>
+				<span class="stat-note" th:text="|成本 ${@money.plain(v.cost())}|">成本 50,020</span>
+			</div>
+			<div class="stat-card">
+				<span class="stat-label">帳面損益</span>
+				<span class="stat-value" th:classappend="${v.unrealized().signum() < 0} ? 'negative' : 'positive'"
+						th:text="${@money.signed(v.unrealized())}">+8,730</span>
+				<span class="stat-note" th:text="${v.returnPercent() != null} ? |報酬率 ${v.returnPercent()}%| : '報酬率 —'">報酬率 17.45%</span>
+			</div>
+			<div class="stat-card">
+				<span class="stat-label">累計已領配息</span>
+				<span class="stat-value" th:text="${@money.plain(v.dividends())}">0</span>
+				<span class="stat-note" th:text="${v.annualDividend() != null} ? |預估年配息 ${@money.plain(v.annualDividend())}| : '預估年配息 —（缺年配息次數或除息資料）'">預估年配息 6,880</span>
+			</div>
+		</section>
+
+		<section class="panel" th:unless="${#lists.isEmpty(v.dividendSuggestions())}" aria-label="配息提醒">
+			<h2>已除息、還沒記入帳的配息</h2>
+			<p class="muted">依證交所除息資料和除息前一天的持股估算；實際入帳金額以存摺為準，記入帳時可以改。</p>
+			<div class="table-scroll">
+				<table class="table">
+					<thead><tr><th>股票</th><th>除息日</th><th class="num">股數</th><th class="num">每股</th><th class="num">應領</th><th class="num">二代健保</th><th class="num">預估入帳</th><th></th></tr></thead>
+					<tbody>
+					<tr th:each="s : ${v.dividendSuggestions()}">
+						<td th:text="|${s.code()} ${s.name()}|">0056 元大高股息</td>
+						<td th:text="${s.exDate()}">2026-10-21</td>
+						<td class="num" th:text="${#numbers.formatInteger(s.shares(), 1, 'COMMA')}">15,000</td>
+						<td class="num" th:text="${s.perShare()}">1.72</td>
+						<td class="num" th:text="${@money.plain(s.gross())}">25,800</td>
+						<td class="num" th:text="${@money.plain(s.nhi())}">544</td>
+						<td class="num" th:text="${@money.plain(s.net())}">25,256</td>
+						<td class="actions"><a th:href="@{/stocks/dividends/new(code=${s.code()},amount=${s.net()},nhi=${s.nhi()})}">記入帳</a></td>
+					</tr>
+					</tbody>
+				</table>
+			</div>
+		</section>
+
+		<section class="panel" aria-label="持股">
+			<h2>持股</h2>
+			<p class="muted" th:if="${#lists.isEmpty(v.holdings())}">還沒有持股。已經有的股票請用「期初持股」記一筆（股數與含手續費的平均成本）。</p>
+			<div class="table-scroll" th:unless="${#lists.isEmpty(v.holdings())}">
+				<table class="table">
+					<thead><tr><th>股票</th><th class="num">股數</th><th class="num">平均成本</th><th class="num">收盤價</th><th class="num">市值</th><th class="num">帳面損益</th><th class="num">報酬率</th><th class="num">含息報酬率</th><th class="num">累計配息</th><th class="num">預估年配息</th><th>資金來源</th></tr></thead>
+					<tbody>
+					<tr th:each="h : ${v.holdings()}">
+						<td th:text="|${h.code()} ${h.name()}|">0056 元大高股息</td>
+						<td class="num" th:text="${#numbers.formatInteger(h.shares(), 1, 'COMMA')}">1,000</td>
+						<td class="num" th:text="${#numbers.formatDecimal(h.averageCost(), 1, 'COMMA', 2, 'POINT')}">50.02</td>
+						<td class="num" th:text="${h.price() != null} ? ${#numbers.formatDecimal(h.price(), 1, 'COMMA', 2, 'POINT')} : '—'">58.75</td>
+						<td class="num" th:text="${h.marketValue() != null} ? ${@money.plain(h.marketValue())} : '—'">58,750</td>
+						<td class="num" th:classappend="${h.unrealized() != null and h.unrealized().signum() < 0} ? 'negative' : ''"
+								th:text="${h.unrealized() != null} ? ${@money.signed(h.unrealized())} : '—'">+8,730</td>
+						<td class="num" th:text="${h.returnPercent() != null} ? |${h.returnPercent()}%| : '—'">17.45%</td>
+						<td class="num" th:text="${h.totalReturnPercent() != null} ? |${h.totalReturnPercent()}%| : '—'">17.45%</td>
+						<td class="num" th:text="${@money.plain(h.dividends())}">0</td>
+						<td class="num">
+							<span th:text="${h.annualDividend() != null} ? ${@money.plain(h.annualDividend())} : '—'">6,880</span>
+							<small class="muted" th:if="${h.dividendsPerYear() != null}" th:text="|（一年 ${h.dividendsPerYear()} 次）|">（一年 4 次）</small>
+							<!-- 年配息次數是所有使用者共用的資料，只有管理者可以設定 -->
+							<form class="inline-form inline-form-compact" method="post" th:if="${v.admin()}"
+									th:action="@{/stocks/{code}/dividends-per-year(code=${h.code()})}">
+								<select name="times" th:attr="aria-label=|${h.code()} 一年配息幾次|">
+									<option value="">未設定</option>
+									<option th:each="n : ${ {1, 2, 3, 4, 6, 12} }" th:value="${n}" th:text="|一年 ${n} 次|"
+											th:selected="${h.dividendsPerYear() == n}">一年 4 次</option>
+								</select>
+								<button type="submit" class="btn btn-link" data-busy-text="儲存中…">儲存</button>
+							</form>
+						</td>
+						<td th:text="${h.sources()}">自有 100%</td>
+					</tr>
+					</tbody>
+				</table>
+			</div>
+		</section>
+
+		<section class="panel" th:unless="${#lists.isEmpty(v.recentSales())}" aria-label="最近賣出">
+			<h2>最近賣出</h2>
+			<p class="muted">預估入帳是依當天費率算的；和實際入帳不同時，以實際入帳為準。</p>
+			<div class="table-scroll">
+				<table class="table">
+					<thead><tr><th>日期</th><th>股票</th><th class="num">股數</th><th class="num">預估入帳</th><th class="num">實際入帳</th><th class="num">差異</th><th class="num">已實現損益</th></tr></thead>
+					<tbody>
+					<tr th:each="s : ${v.recentSales()}">
+						<td th:text="${s.date()}">2026-10-22</td>
+						<td th:text="|${s.code()} ${s.name()}|">0056 元大高股息</td>
+						<td class="num" th:text="${#numbers.formatInteger(s.shares(), 1, 'COMMA')}">500</td>
+						<td class="num" th:text="${@money.plain(s.estimated())}">29,928</td>
+						<td class="num" th:text="${@money.plain(s.actual())}">29,928</td>
+						<td class="num" th:text="${@money.signed(s.difference())}">0</td>
+						<td class="num" th:classappend="${s.realized() != null and s.realized().signum() < 0} ? 'negative' : ''"
+								th:text="${s.realized() != null} ? ${@money.signed(s.realized())} : '—'">+1,523</td>
+					</tr>
+					</tbody>
+				</table>
+			</div>
+		</section>
+
+		<section class="panel" aria-label="交易紀錄">
+			<h2>交易紀錄</h2>
+			<p class="muted" th:if="${#lists.isEmpty(v.trades())}">還沒有交易。</p>
+			<div class="table-scroll" th:unless="${#lists.isEmpty(v.trades())}">
+				<table class="table">
+					<thead><tr><th>日期</th><th>類型</th><th>股票</th><th class="num">股數</th><th class="num">價格</th><th class="num">手續費</th><th class="num">證交稅</th><th class="num">金額</th><th>帳戶</th><th></th></tr></thead>
+					<tbody>
+					<tr th:each="t : ${v.trades()}" th:classappend="${t.voided()} ? 'voided-row' : ''">
+						<td th:text="${t.date()}">2026-10-22</td>
+						<td>
+							<span th:text="${t.typeLabel()}">買進</span>
+							<span class="badge" th:if="${t.voided()}">已作廢</span>
+							<span class="badge" th:if="${t.revised()}">已修改</span>
+						</td>
+						<td th:text="|${t.code()} ${t.name()}|">0056 元大高股息</td>
+						<td class="num" th:text="${#numbers.formatInteger(t.shares(), 1, 'COMMA')}">1,000</td>
+						<td class="num" th:text="${t.price() != null} ? ${#numbers.formatDecimal(t.price(), 1, 'COMMA', 2, 'POINT')} : '—'">58.75</td>
+						<td class="num" th:text="${t.fee() != null} ? ${@money.plain(t.fee())} : '—'">83</td>
+						<td class="num" th:text="${t.tax() != null} ? ${@money.plain(t.tax())} : '—'">—</td>
+						<td class="num" th:text="${@money.plain(t.amount())}">58,833</td>
+						<td th:text="${t.accountName()}">玉山交割戶</td>
+						<td class="actions">
+							<th:block th:unless="${t.voided()}">
+								<a th:href="@{/stocks/trades/{id}/edit(id=${t.id()})}">修改</a>
+								<form class="inline-form inline-form-compact" method="post" th:action="@{/stocks/trades/{id}/void(id=${t.id()})}"
+										data-confirm="確定要作廢這筆交易嗎？自動記的現金異動也會一起作廢，但會留下紀錄。">
+									<button type="submit" class="btn btn-link" data-busy-text="作廢中…">作廢</button>
+								</form>
+							</th:block>
+						</td>
+					</tr>
+					</tbody>
+				</table>
+			</div>
+		</section>
+	</main>
+</div>
+</body>
+</html>

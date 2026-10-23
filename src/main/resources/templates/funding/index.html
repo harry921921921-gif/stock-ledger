@@ -42,7 +42,7 @@
 
 		<p class="muted" th:if="${#lists.isEmpty(v.loans())}">還沒有借款。</p>
 
-		<p class="muted" th:unless="${#lists.isEmpty(v.loans())}">「尚未投入」是還沒拿去買股票的借款；股票功能完成前等於剩餘本金。</p>
+		<p class="muted" th:unless="${#lists.isEmpty(v.loans())}">「尚未投入」是還沒拿去買股票的借款；買股票時在資金來源選這筆借款，就會從這裡扣掉。「借款淨賺」＝這筆借款買的股票帳面損益＋已實現損益＋配息 − 已付利息。</p>
 
 		<section class="account-grid">
 			<div class="account-card" th:each="c : ${v.loans()}">
@@ -57,7 +57,8 @@
 					<dt>年利率</dt><dd th:text="|${c.ratePercent()}%|">2.50%</dd>
 					<dt>本月利息</dt><dd th:text="${@money.plain(c.monthInterest())}">834</dd>
 					<dt>累計已付利息</dt><dd th:text="${@money.plain(c.paidInterest())}">0</dd>
-					<dt>尚未投入</dt><dd th:text="${@money.plain(c.undeployed())}" title="股票功能完成後，買股票用掉的部分會從這裡扣掉">400,000</dd>
+					<dt>尚未投入</dt><dd th:text="${@money.plain(c.undeployed())}">400,000</dd>
+					<dt>借款淨賺</dt><dd th:text="${@money.signed(c.netGain())}" th:classappend="${c.netGain().signum() < 0} ? 'negative' : ''">+992</dd>
 					<th:block th:if="${c.credit() and c.nextDue() != null}">
 						<dt>下次扣款</dt><dd th:text="|${c.nextDue()}，${@money.plain(c.nextAmount())} 元（剩 ${c.periodsLeft()} 期）|">2026-11-05，7,099 元（剩 60 期）</dd>
 					</th:block>
@@ -66,6 +67,46 @@
 					</th:block>
 					<dt>扣款帳戶</dt><dd th:text="${c.payAccountName()}">土銀帳戶</dd>
 				</dl>
+				<th:block th:unless="${#lists.isEmpty(c.deployedIn())}">
+					<p class="muted card-subtitle">借來的錢現在在哪</p>
+					<dl class="loan-facts">
+						<th:block th:each="line : ${c.deployedIn()}">
+							<dt th:text="${line.label()}">0056 元大高股息</dt><dd th:text="${@money.plain(line.amount())}">50,000</dd>
+						</th:block>
+					</dl>
+				</th:block>
+				<th:block th:if="${c.pledge()}">
+					<p class="muted card-subtitle">擔保股票與維持率</p>
+					<dl class="loan-facts">
+						<th:block th:each="line : ${c.collateral()}">
+							<dt th:text="|${line.label()} ${#numbers.formatInteger(line.shares(), 1, 'COMMA')} 股|">0056 元大高股息 1,000 股</dt>
+							<dd th:text="${line.marketValue() != null} ? ${@money.plain(line.marketValue())} : '沒有股價'">60,000</dd>
+						</th:block>
+						<dt>維持率</dt>
+						<dd th:if="${c.maintenancePercent() == null}">—</dd>
+						<dd th:if="${c.maintenancePercent() != null}"
+								th:class="|maintenance maintenance-${#strings.toLowerCase(c.maintenanceLevel())}|"
+								th:text="|${c.maintenancePercent()}%${c.maintenanceLevel() == 'CALL' ? '（低於追繳線）' : (c.maintenanceLevel() == 'WARN' ? '（低於提醒線）' : '')}|">165.00%</dd>
+						<dt>提醒線／追繳線</dt><dd th:text="|${c.warnPercent()}% ／ ${c.callPercent()}%|">150% ／ 130%</dd>
+					</dl>
+					<details class="card-details">
+						<summary>設定擔保股票、維持率門檻</summary>
+						<form class="inline-form" method="post" th:action="@{/funding/{id}/collateral(id=${c.id()})}">
+							<input type="text" name="stockCode" maxlength="10" placeholder="股票代號" required
+									th:attr="aria-label=|${c.name()} 的擔保股票代號|">
+							<input type="number" name="shares" min="0" step="1" placeholder="擔保股數（0 ＝ 拿掉）" required
+									th:attr="aria-label=|${c.name()} 的擔保股數|">
+							<button type="submit" class="btn btn-secondary" data-busy-text="儲存中…">儲存擔保股票</button>
+						</form>
+						<form class="inline-form" method="post" th:action="@{/funding/{id}/thresholds(id=${c.id()})}">
+							<input type="number" name="warnPercent" min="1" max="1000" step="0.01" required
+									th:value="${c.warnPercent()}" th:attr="aria-label=|${c.name()} 的提醒線（%）|">
+							<input type="number" name="callPercent" min="1" max="1000" step="0.01" required
+									th:value="${c.callPercent()}" th:attr="aria-label=|${c.name()} 的追繳線（%）|">
+							<button type="submit" class="btn btn-secondary" data-busy-text="儲存中…">儲存門檻（%）</button>
+						</form>
+					</details>
+				</th:block>
 				<p class="card-actions">
 					<a th:href="@{/funding/{id}/edit(id=${c.id()})}">修改</a> ·
 					<a th:href="@{/funding/{id}/rate(id=${c.id()})}">新增利率</a> ·

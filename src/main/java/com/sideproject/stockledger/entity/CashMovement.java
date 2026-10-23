@@ -74,8 +74,50 @@ public class CashMovement {
 	@Column(name = "loan_id", updatable = false)
 	private Long loanId;
 
+	/** 買進、賣出股票：自動記這筆的股票交易；其他類型為 null（V10）。 */
+	@Column(name = "trade_id", updatable = false)
+	private Long tradeId;
+
+	/** 配息：哪一檔股票；其他類型為 null（V10）。 */
+	@Column(name = "stock_id", updatable = false)
+	private Long stockId;
+
+	/** 配息：二代健保扣繳額（實際入帳金額已經扣掉）；其他類型為 null（V10）。 */
+	@Column(name = "nhi_amount", precision = 19, scale = 4)
+	private BigDecimal nhiAmount;
+
 	protected CashMovement() {
 		// JPA 需要
+	}
+
+	/** 股票交易自動記的現金異動：買進從交割戶扣（成交金額＋手續費）、賣出存入實際入帳金額。備註是股票名稱。 */
+	public static CashMovement ofTrade(Trade trade, CashMovementType type, String note, LocalDateTime now) {
+		if (!type.isTrade()) {
+			throw new IllegalArgumentException("只有買進、賣出股票可以屬於交易");
+		}
+		CashMovement m = ofAmount(trade.getUserId(), type, trade.getTradeDate(), trade.getAccountId(), null,
+				trade.getAmount(), note, now);
+		m.tradeId = trade.getId();
+		return m;
+	}
+
+	/** 配息入帳：實際入帳金額與二代健保扣繳額。備註是股票名稱。 */
+	public static CashMovement ofDividend(Long userId, LocalDate date, Long accountId, Long stockId, BigDecimal amount,
+			BigDecimal nhi, String note, LocalDateTime now) {
+		CashMovement m = ofAmount(userId, CashMovementType.DIVIDEND, date, accountId, null, amount, note, now);
+		m.stockId = stockId;
+		m.nhiAmount = nhi;
+		return m;
+	}
+
+	/** 交易修改時，跟著改它自動記的那筆現金異動（呼叫端先寫修改紀錄）。 */
+	public void followTrade(Trade trade) {
+		change(trade.getTradeDate(), trade.getAccountId(), null, trade.getAmount(), getNote());
+	}
+
+	/** 修改配息的二代健保扣繳額。 */
+	public void changeNhi(BigDecimal nhi) {
+		this.nhiAmount = nhi;
 	}
 
 	/**
@@ -235,6 +277,18 @@ public class CashMovement {
 
 	public Long getLoanId() {
 		return loanId;
+	}
+
+	public Long getTradeId() {
+		return tradeId;
+	}
+
+	public Long getStockId() {
+		return stockId;
+	}
+
+	public BigDecimal getNhiAmount() {
+		return nhiAmount;
 	}
 
 }

@@ -119,6 +119,10 @@ label.checkbox { font-weight: 400; display: flex; gap: 8px; align-items: center;
 	.sidebar nav { flex-direction: row; flex-wrap: wrap; }
 	.sidebar-footer { margin-top: 12px; }
 	.content { padding: 20px 16px; }
+	/* 標題旁的按鈕換到標題下方，不要擠成一直排 */
+	.page-header { flex-wrap: wrap; align-items: flex-start; }
+	.header-actions { justify-content: flex-start; }
+	.two-column { grid-template-columns: 1fr; }
 }
 
 /* ---------- 設定頁：表格、表單 ---------- */
@@ -126,6 +130,15 @@ label.checkbox { font-weight: 400; display: flex; gap: 8px; align-items: center;
 .breadcrumb a { color: var(--muted); }
 .page-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .page-header .btn { flex: none; white-space: nowrap; }
+.header-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.content .panel h2:first-child { margin-top: 0; }
+.panel + .panel { margin-top: 16px; }
+.voided-row td { color: var(--muted); }
+.inline-form-compact { display: inline-flex; margin-left: 8px; }
+.two-column { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin: 16px 0; }
+.two-column .panel + .panel { margin-top: 0; }
+.total-row td { font-weight: 600; }
+.allocation-grid { display: grid; grid-template-columns: 1fr 160px; gap: 6px 12px; align-items: center; margin: 4px 0 8px; }
 a.btn { display: inline-block; text-decoration: none; }
 
 .table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
@@ -194,3 +207,11 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 .loan-facts dt { color: var(--muted); }
 .loan-facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .card-actions { margin: 8px 0 0; }
+.card-subtitle { margin: 12px 0 0; font-size: 0.9em; }
+.card-details { margin: 8px 0 0; }
+.card-details summary { cursor: pointer; color: var(--muted); }
+.card-details .inline-form { flex-wrap: wrap; margin-top: 8px; }
+.card-details .inline-form input { width: 140px; }
+.maintenance-ok { color: var(--success-text); }
+.maintenance-warn { color: var(--warning-text); font-weight: 600; }
+.maintenance-call { color: var(--error-text); font-weight: 600; }

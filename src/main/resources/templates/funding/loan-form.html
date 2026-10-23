@@ -20,7 +20,6 @@
 
 		<form class="form-card" method="post" th:object="${form}" th:unless="${#lists.isEmpty(myAccounts)}"
 				th:action="${loanId == null} ? @{/funding/new} : @{/funding/{id}/edit(id=${loanId})}">
-			<p class="alert alert-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}">錯誤訊息</p>
 			<p class="alert alert-error" th:if="${#fields.hasErrors('*')}" th:each="e : ${#fields.errors('*')}" th:text="${e}">錯誤訊息</p>
 			<input type="hidden" name="formToken" th:if="${loanId == null}" th:value="${formToken}">
 

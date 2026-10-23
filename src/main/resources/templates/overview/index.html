@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>總覽 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<!-- 總覽（spec 第 3 節第 1 頁）。所有數字都由 OverviewService 算好，這裡只負責顯示。 -->
+<div class="app" th:with="v=${view}">
+	<aside th:replace="~{fragments/layout :: sidebar('overview')}"></aside>
+	<main class="content">
+		<div class="page-header">
+			<div>
+				<h1>總覽</h1>
+				<p class="muted">
+					<span th:if="${v.priceDate() != null}" th:text="|股價更新至 ${v.priceDate()}|">股價更新至 2026-10-21</span>
+					<span th:if="${v.priceDate() == null}">還沒有股價</span>
+				</p>
+			</div>
+		</div>
+
+		<p class="alert alert-warning" th:each="r : ${v.reminders()}">
+			<span th:text="|${r.period()} ${r.itemName()}還沒填|">2026-10 生活費還沒填</span> ·
+			<a th:href="@{/recurring}">去固定收支填金額</a>
+		</p>
+		<p class="alert" th:each="m : ${v.maintenance()}" th:if="${m.level() != 'OK'}"
+				th:classappend="${m.level() == 'CALL'} ? 'alert-error' : 'alert-warning'">
+			<span th:text="|${m.loanName()} 維持率 ${m.percent()}%，${m.level() == 'CALL' ? '低於追繳線 ' + m.callPercent() + '%' : '低於提醒線 ' + m.warnPercent() + '%'}|">玉山質押 維持率 146.88%，低於提醒線 150%</span> ·
+			<a th:href="@{/funding}">看資金來源</a>
+		</p>
+
+		<section class="stat-grid" aria-label="關鍵數字">
+			<div class="stat-card">
+				<span class="stat-label">淨資產</span>
+				<span class="stat-value" th:classappend="${v.netWorth().signum() < 0} ? 'negative' : ''"
+						th:text="${@money.plain(v.netWorth())}">1,885,000</span>
+				<span class="stat-note">總資產 − 總負債</span>
+			</div>
+			<div class="stat-card">
+				<span class="stat-label" th:text="|${v.month()} 淨資產變動|">2026-10 淨資產變動</span>
+				<span class="stat-value" th:classappend="${v.monthChange().total().signum() < 0} ? 'negative' : 'positive'"
+						th:text="${@money.signed(v.monthChange().total())}">+12,345</span>
+				<span class="stat-note">
+					<a th:if="${v.previousMonth() != null}" th:href="@{/(month=${v.previousMonth()})}">← 上個月</a>
+					<a th:if="${v.nextMonth() != null}" th:href="@{/(month=${v.nextMonth()})}">下個月 →</a>
+				</span>
+			</div>
+			<div class="stat-card">
+				<span class="stat-label">股票報酬率</span>
+				<span class="stat-value" th:text="${v.stockReturnPercent() != null} ? |${v.stockReturnPercent()}%| : '—'">42.79%</span>
+				<span class="stat-note">沒有融資，自備款報酬率相同</span>
+			</div>
+			<div class="stat-card">
+				<span class="stat-label">借款投資淨賺</span>
+				<span class="stat-value" th:if="${v.loanNetGain() != null}"
+						th:classappend="${v.loanNetGain().signum() < 0} ? 'negative' : 'positive'"
+						th:text="${@money.signed(v.loanNetGain())}">+3,332</span>
+				<span class="stat-value" th:if="${v.loanNetGain() == null}">—</span>
+				<span class="stat-note">借款買的股票賺的 − 已付利息</span>
+			</div>
+		</section>
+
+		<div class="two-column">
+			<section class="panel" aria-label="淨資產變動拆解">
+				<h2 th:text="|${v.month()} 淨資產變動拆解|">2026-10 淨資產變動拆解</h2>
+				<table class="table">
+					<tbody>
+					<tr><td>股價漲跌（帳面）</td><td class="num" th:text="${@money.signed(v.monthChange().priceChange())}">+3,750</td></tr>
+					<tr><td>賣出損益</td><td class="num" th:text="${@money.signed(v.monthChange().realized())}">0</td></tr>
+					<tr><td>配息（已扣二代健保）</td><td class="num" th:text="${@money.plain(v.monthChange().dividends())}">0</td></tr>
+					<tr><td>利息</td><td class="num" th:text="${v.monthChange().interest().signum() == 0} ? 0 : |−${@money.plain(v.monthChange().interest())}|">−655</td></tr>
+					<tr><td>存入</td><td class="num" th:text="${@money.plain(v.monthChange().deposits())}">0</td></tr>
+					<tr><td>支出</td><td class="num" th:text="${v.monthChange().withdrawals().signum() == 0} ? 0 : |−${@money.plain(v.monthChange().withdrawals())}|">−0</td></tr>
+					<tr><td>餘額調整</td><td class="num" th:text="${@money.signed(v.monthChange().adjustments())}">0</td></tr>
+					<tr class="total-row"><td>合計</td><td class="num" th:text="${@money.signed(v.monthChange().total())}">+3,095</td></tr>
+					</tbody>
+				</table>
+				<p class="muted">借款撥款、還本金、買賣股票、帳戶互轉只改變資產形式，不算變動。系統開始抓股價以前的漲跌不算在任何月份。</p>
+			</section>
+
+			<section class="panel" aria-label="資產與負債">
+				<h2>資產與負債</h2>
+				<table class="table">
+					<tbody>
+					<tr><td>總資產</td><td class="num" th:text="${@money.plain(v.totalAssets())}">2,285,000</td></tr>
+					<tr><td>　股票</td><td class="num" th:text="${@money.plain(v.stockValue())}">1,175,000</td></tr>
+					<tr><td>　現金</td><td class="num" th:text="${@money.plain(v.cash())}">1,110,000</td></tr>
+					<tr><td>總負債</td><td class="num" th:text="${@money.plain(v.totalDebt())}">400,000</td></tr>
+					<tr><td>加權平均利率</td><td class="num" th:text="${v.weightedRatePercent() != null} ? |${v.weightedRatePercent()}%| : '—'">2.60%</td></tr>
+					<tr><td>槓桿比例（負債 ÷ 資產）</td><td class="num" th:text="${v.leveragePercent() != null} ? |${v.leveragePercent()}%| : '—'">17.51%</td></tr>
+					<tr th:each="m : ${v.maintenance()}">
+						<td th:text="|${m.loanName()} 維持率|">玉山質押 維持率</td>
+						<td class="num" th:class="|num maintenance-${#strings.toLowerCase(m.level())}|" th:text="|${m.percent()}%|">146.88%</td>
+					</tr>
+					</tbody>
+				</table>
+				<h2 th:text="|${v.month()} 資金移動|">2026-10 資金移動</h2>
+				<p class="muted" th:if="${#lists.isEmpty(v.flows())}">這個月沒有資金移動。</p>
+				<table class="table" th:unless="${#lists.isEmpty(v.flows())}">
+					<tbody>
+					<tr th:each="f : ${v.flows()}"><td th:text="${f.label()}">買進股票</td><td class="num" th:text="${@money.plain(f.amount())}">290,413</td></tr>
+					</tbody>
+				</table>
+			</section>
+		</div>
+
+		<section class="panel" aria-label="持股報酬">
+			<h2>持股報酬</h2>
+			<p class="muted" th:if="${#lists.isEmpty(v.holdings())}">還沒有持股。<a th:href="@{/stocks}">去股票頁</a></p>
+			<div class="table-scroll" th:unless="${#lists.isEmpty(v.holdings())}">
+				<table class="table">
+					<thead><tr><th>股票</th><th class="num">市值</th><th class="num">帳面損益</th><th class="num">報酬率</th><th class="num">含息報酬率</th><th class="num">累計配息</th><th>資金來源</th></tr></thead>
+					<tbody>
+					<tr th:each="h : ${v.holdings()}">
+						<td><a th:href="@{/stocks}" th:text="|${h.code()} ${h.name()}|">0056 元大高股息</a></td>
+						<td class="num" th:text="${h.marketValue() != null} ? ${@money.plain(h.marketValue())} : '—'">1,175,000</td>
+						<td class="num" th:classappend="${h.unrealized() != null and h.unrealized().signum() < 0} ? 'negative' : ''"
+								th:text="${h.unrealized() != null} ? ${@money.signed(h.unrealized())} : '—'">+352,087</td>
+						<td class="num" th:text="${h.returnPercent() != null} ? |${h.returnPercent()}%| : '—'">42.79%</td>
+						<td class="num" th:text="${h.totalReturnPercent() != null} ? |${h.totalReturnPercent()}%| : '—'">42.79%</td>
+						<td class="num" th:text="${@money.plain(h.dividends())}">0</td>
+						<td th:text="${h.sources()}">自有 65%、玉山質押 35%</td>
+					</tr>
+					</tbody>
+				</table>
+			</div>
+		</section>
+	</main>
+</div>
+</body>
+</html>

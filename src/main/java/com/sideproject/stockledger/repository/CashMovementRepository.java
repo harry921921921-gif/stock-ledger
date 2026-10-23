@@ -50,6 +50,12 @@ public interface CashMovementRepository extends Repository<CashMovement, Long> {
 	/** 這個固定項目產生的所有異動（含作廢的），新的在前；全部異動頁依項目篩選用。 */
 	List<CashMovement> findByUserIdAndRecurringItemIdOrderByMovementDateDescIdDesc(Long userId, Long recurringItemId);
 
+	/** 股票交易自動記的那筆（沒作廢的）。 */
+	Optional<CashMovement> findByUserIdAndTradeIdAndVoidedFalse(Long userId, Long tradeId);
+
+	/** 某種類型沒作廢的異動（例如所有配息）。 */
+	List<CashMovement> findByUserIdAndTypeAndVoidedFalse(Long userId, CashMovementType type);
+
 	/** 某筆借款的所有異動（含作廢的），舊的在前；推算剩餘本金、攤還、利息用。 */
 	List<CashMovement> findByUserIdAndLoanIdOrderByMovementDateAscIdAsc(Long userId, Long loanId);
 
