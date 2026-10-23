@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>樣稿：新增借款</title>
+	<!-- 樣稿：只為了確認欄位與畫面，不是正式程式；樣式沿用系統的 app.css -->
+	<style>/* 內嵌 app.css（樣稿用，本機檔案讀不到相對路徑的 CSS） */
+/* 介面 A「穩健明亮」（DR-012）：淺色、左側選單、表格為主 */
+:root {
+	--bg: #f5f7fa;
+	--surface: #ffffff;
+	--border: #e3e8ef;
+	--text: #1f2933;
+	--muted: #6b7785;
+	--primary: #1f5fbf;
+	--primary-dark: #174a96;
+	--error-bg: #fdecec;
+	--error-text: #b42318;
+	--success-text: #0b7a47;
+	--success-bg: #e7f6ee;
+	--info-bg: #eaf2fd;
+	--info-text: #174a96;
+	--warning-bg: #fff4e0;
+	--warning-text: #8a4b00;
+	--radius: 8px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+	font-size: 15px;
+	line-height: 1.6;
+}
+
+h1 { font-size: 22px; margin: 0 0 8px; }
+.muted { color: var(--muted); }
+
+/* ---------- 版面 ---------- */
+.app { display: flex; min-height: 100vh; }
+
+.sidebar {
+	width: 220px;
+	flex-shrink: 0;
+	background: var(--surface);
+	border-right: 1px solid var(--border);
+	display: flex;
+	flex-direction: column;
+	padding: 20px 12px;
+}
+.sidebar .brand { font-weight: 700; font-size: 17px; padding: 0 12px 16px; }
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+	display: block;
+	padding: 8px 12px;
+	border-radius: var(--radius);
+	color: var(--text);
+	text-decoration: none;
+}
+a.nav-item:hover { background: var(--bg); }
+.nav-item.active { background: var(--info-bg); color: var(--primary); font-weight: 600; }
+.nav-item.disabled { color: #b0b8c3; cursor: default; }
+.sidebar-footer {
+	margin-top: auto;
+	border-top: 1px solid var(--border);
+	padding: 12px 12px 0;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+.sidebar-footer .user { display: flex; flex-direction: column; line-height: 1.3; }
+
+.content { flex: 1; padding: 28px 32px; min-width: 0; }
+
+/* ---------- 按鈕與表單 ---------- */
+.btn {
+	border: 1px solid transparent;
+	border-radius: var(--radius);
+	padding: 9px 16px;
+	font: inherit;
+	cursor: pointer;
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-dark); }
+.btn-block { width: 100%; }
+.btn:disabled { opacity: 0.6; cursor: progress; }
+.btn-link { background: none; color: var(--muted); padding: 4px 0; }
+.btn-link:hover { color: var(--primary); }
+
+label { display: block; font-weight: 600; margin: 14px 0 6px; }
+input[type="text"], input[type="password"] {
+	width: 100%;
+	padding: 9px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	font: inherit;
+	background: var(--surface);
+}
+input:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+label.checkbox { font-weight: 400; display: flex; gap: 8px; align-items: center; margin: 14px 0 20px; }
+
+.alert { padding: 10px 12px; border-radius: var(--radius); margin: 12px 0 0; }
+.alert-error { background: var(--error-bg); color: var(--error-text); }
+.alert-info { background: var(--info-bg); color: var(--info-text); }
+.alert-warning { background: var(--warning-bg); color: var(--warning-text); }
+
+/* ---------- 登入頁 ---------- */
+.login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
+.login-card {
+	width: 100%;
+	max-width: 380px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	padding: 32px 28px;
+	box-shadow: 0 4px 16px rgba(31, 41, 51, 0.06);
+}
+.login-card .brand { font-size: 22px; margin: 0; }
+
+/* 手機：側欄改成上方橫列 */
+@media (max-width: 720px) {
+	.app { flex-direction: column; }
+	.sidebar { width: auto; border-right: none; border-bottom: 1px solid var(--border); }
+	.sidebar nav { flex-direction: row; flex-wrap: wrap; }
+	.sidebar-footer { margin-top: 12px; }
+	.content { padding: 20px 16px; }
+	/* 標題旁的按鈕換到標題下方，不要擠成一直排 */
+	.page-header { flex-wrap: wrap; align-items: flex-start; }
+	.header-actions { justify-content: flex-start; }
+	.two-column { grid-template-columns: 1fr; }
+}
+
+/* ---------- 設定頁：表格、表單 ---------- */
+.breadcrumb { margin: 0 0 8px; color: var(--muted); font-size: 0.9em; }
+.breadcrumb a { color: var(--muted); }
+.page-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.page-header .btn { flex: none; white-space: nowrap; }
+.header-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.content .panel h2:first-child { margin-top: 0; }
+.panel + .panel { margin-top: 16px; }
+.voided-row td { color: var(--muted); }
+.inline-form-compact { display: inline-flex; margin-left: 8px; }
+.two-column { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin: 16px 0; }
+.two-column .panel + .panel { margin-top: 0; }
+.total-row td { font-weight: 600; }
+.allocation-grid { display: grid; grid-template-columns: 1fr 160px; gap: 6px 12px; align-items: center; margin: 4px 0 8px; }
+a.btn { display: inline-block; text-decoration: none; }
+
+.table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.table th, .table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+.table th { color: var(--muted); font-weight: 600; font-size: 0.9em; }
+.table tbody tr:last-child td { border-bottom: none; }
+.table .actions { text-align: right; }
+
+.settings-list { list-style: none; padding: 0; margin: 16px 0; display: grid; gap: 12px; max-width: 560px; }
+.settings-list a { display: block; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); text-decoration: none; }
+.settings-list a:hover { border-color: var(--primary); }
+
+.form-card { max-width: 480px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 20px 20px; }
+select { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; background: var(--surface); }
+input.field-invalid, select.field-invalid { border-color: var(--error-text); }
+.field-error { color: var(--error-text); margin: 6px 0 0; font-size: 0.9em; }
+.form-actions { display: flex; align-items: center; gap: 16px; margin-top: 20px; }
+
+/* ---------- 費率頁 ---------- */
+.content h2 { margin: 28px 0 4px; font-size: 1.2em; }
+.content h3 { margin: 24px 0 8px; font-size: 1.05em; }
+.hint { margin: 6px 0 0; font-size: 0.85em; }
+details summary { cursor: pointer; color: var(--primary); }
+.history { margin: 8px 0 0; padding-left: 18px; line-height: 1.8; }
+.badge { display: inline-block; padding: 0 8px; border-radius: 999px; background: var(--info-bg); color: var(--info-text); font-size: 0.8em; }
+input[type="date"], input[type="number"], input[type="month"] { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; background: var(--surface); }
+
+/* ---------- 使用者管理 ---------- */
+.inline-form { display: flex; gap: 8px; align-items: center; }
+.inline-form input { width: 180px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; }
+.btn-secondary { background: var(--surface); border-color: var(--border); color: var(--text); padding: 6px 12px; }
+.btn-secondary:hover { border-color: var(--primary); color: var(--primary); }
+
+/* ---------- 總資產頁 ---------- */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 16px 0; }
+.stat-card, .account-card, .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
+.stat-card { display: flex; flex-direction: column; gap: 6px; }
+.stat-label { color: var(--muted); font-size: 0.9em; }
+.stat-value { font-size: 1.6em; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat-note { font-size: 0.85em; color: var(--muted); }
+.panel { margin: 16px 0; }
+.account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin: 16px 0; }
+.account-card { display: flex; flex-direction: column; gap: 8px; }
+.account-head { display: flex; justify-content: space-between; gap: 8px; }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.negative { color: var(--error-text); }
+.positive { color: var(--success-text); }
+.voided { color: var(--muted); text-decoration: line-through; }
+.month-nav { display: flex; gap: 16px; align-items: center; margin: 12px 0; }
+.search-form { display: flex; gap: 8px; align-items: center; margin: 12px 0; }
+.search-form input { width: 260px; max-width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; }
+.label-text { font-weight: 600; margin-right: 8px; }
+
+/* ---------- 固定收支頁 ---------- */
+.unfilled-row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.unfilled-row:last-child { border-bottom: none; }
+.unfilled-row .inline-form input { width: 140px; }
+.table-scroll { overflow-x: auto; }
+/* 窄畫面時表格左右捲動，不要把名稱、日期擠成好幾行 */
+.table-scroll .table { min-width: 720px; }
+.table-scroll .table th, .table-scroll .table td { white-space: nowrap; }
+
+/* ---------- 資金來源頁 ---------- */
+.account-card-header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.loan-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 12px 0; }
+.loan-facts dt { color: var(--muted); }
+.loan-facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.card-actions { margin: 8px 0 0; }
+.card-subtitle { margin: 12px 0 0; font-size: 0.9em; }
+.card-details { margin: 8px 0 0; }
+.purchase-table { margin-top: 4px; font-size: 0.9em; }
+.purchase-table th, .purchase-table td { padding: 6px 8px; white-space: nowrap; }
+.card-details summary { cursor: pointer; color: var(--muted); }
+.card-details .inline-form { flex-wrap: wrap; margin-top: 8px; }
+.card-details .inline-form input { width: 140px; }
+.maintenance-ok { color: var(--success-text); }
+/* 借款值不值得：綠＝賺贏利息、紅＝還沒賺贏、灰＝還沒拿去投資 */
+.worth { margin: 12px 0 0; padding: 8px 12px; border-radius: var(--radius); background: var(--bg); }
+.worth .loan-facts { margin: 4px 0 0; }
+.worth-verdict { margin: 0; font-weight: 600; color: var(--muted); }
+.worth-beat { background: var(--success-bg); }
+.worth-beat .worth-verdict, .worth-beat .worth-net { color: var(--success-text); }
+.worth-behind { background: var(--error-bg); }
+.worth-behind .worth-verdict, .worth-behind .worth-net { color: var(--error-text); }
+.maintenance-warn { color: var(--warning-text); font-weight: 600; }
+.maintenance-call { color: var(--error-text); font-weight: 600; }
+	</style>
+	<style>
+		.mock-note { background: var(--warning-bg); color: var(--warning-text); padding: 8px 12px; border-radius: var(--radius); margin: 0 0 16px; }
+		.method-group { display: grid; gap: 8px; margin: 4px 0 12px; }
+		.method { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; }
+		.method input { margin-top: 4px; }
+		.method strong { display: block; }
+		.method small { color: var(--muted); }
+		.method:has(input:checked) { border-color: var(--primary); background: var(--info-bg); }
+		.preview { margin-top: 20px; }
+		.preview h2 { margin-top: 0; }
+		.two-col { display: grid; grid-template-columns: minmax(0, 480px) minmax(0, 380px); gap: 24px; align-items: start; }
+		@media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+		.check { font-size: 0.9em; margin: 4px 0 0; }
+		.check-ok { color: var(--success-text); }
+		.check-bad { color: var(--error-text); }
+		.check-warn { color: var(--warning-text); }
+		.collateral-box { margin: 8px 0 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+		.collateral-table { font-size: 0.9em; }
+		.collateral-table th, .collateral-table td { padding: 6px 8px; }
+		.collateral-table input[type=number] { width: 90px; padding: 4px 6px; margin: 0; }
+		.threshold-row { display: flex; gap: 12px; margin-top: 8px; }
+		.threshold-row label { flex: 1; margin: 0; }
+	</style>
+</head>
+<body>
+<div class="app">
+	<aside class="sidebar">
+		<div class="brand">台股資產帳本</div>
+		<nav>
+			<span class="nav-item">總覽</span>
+			<span class="nav-item">總資產</span>
+			<span class="nav-item">股票</span>
+			<span class="nav-item active">資金來源</span>
+			<span class="nav-item">固定收支</span>
+			<span class="nav-item">設定</span>
+		</nav>
+	</aside>
+	<main class="content">
+		<p class="mock-note">樣稿：可以切換「還款方式」看欄位怎麼變；右邊是存好後資金來源卡片的樣子。按「儲存」不會真的存。</p>
+		<h1>新增借款</h1>
+		<p class="muted">照借款合約和銀行實際扣款填。系統以你填的扣款金額為準，只用利率把它拆成本金和利息。</p>
+
+		<div class="two-col">
+			<form class="form-card" onsubmit="return false">
+				<label for="name">名稱</label>
+				<input id="name" type="text" value="土銀信貸">
+
+				<label for="bank">銀行</label>
+				<input id="bank" type="text" value="土地銀行">
+
+				<p class="label-text">還款方式</p>
+				<div class="method-group">
+					<label class="method"><input type="radio" name="method" value="MONTHLY" checked>
+						<span><strong>每月固定還款</strong><small>每月扣一筆，裡面有本金和利息（一般信貸、房貸）</small></span></label>
+					<label class="method"><input type="radio" name="method" value="BULLET">
+						<span><strong>到期一次還本金＋利息</strong><small>平常不用繳，到期一次付清（例如股票質押）</small></span></label>
+					<label class="method"><input type="radio" name="method" value="INTEREST_ONLY">
+						<span><strong>每月繳息、到期還本</strong><small>每月只繳利息，本金到期才還</small></span></label>
+				</div>
+
+				<label><input type="checkbox" id="pledge"> 這是股票質押（要設定擔保股票、看維持率）</label>
+
+				<div id="collateralBox" class="collateral-box">
+					<p class="label-text">擔保股票（勾選拿去質押的持股）</p>
+					<p class="muted">勾了就是全部持股都拿去擔保；只押一部分就把股數改小。</p>
+					<table class="table collateral-table">
+						<thead><tr><th></th><th>股票</th><th class="num">擔保股數</th><th class="num">收盤價</th></tr></thead>
+						<tbody>
+						<tr><td><input type="checkbox" class="cb" data-held="1000" data-price="80.90" checked></td><td title="00830 國泰費城半導體">00830<br><small class="muted">持有 1,000</small></td>
+							<td class="num"><input type="number" class="cs" min="0" max="1000" value="1000"></td><td class="num">80.90</td></tr>
+						<tr><td><input type="checkbox" class="cb" data-held="1000" data-price="106.90"></td><td title="0050 元大台灣50">0050<br><small class="muted">持有 1,000</small></td>
+							<td class="num"><input type="number" class="cs" min="0" max="1000" value="1000" disabled></td><td class="num">106.90</td></tr>
+						</tbody>
+					</table>
+					<div class="threshold-row">
+						<label>提醒線（%）<input id="warn" type="number" value="150"></label>
+						<label>追繳線（%）<input id="call" type="number" value="130"></label>
+					</div>
+					<p class="check" id="maintCheck"></p>
+				</div>
+
+				<label for="date">撥款日</label>
+				<input id="date" type="date" value="2026-02-01">
+
+				<label for="amount">借款金額</label>
+				<input id="amount" type="text" inputmode="numeric" value="400000">
+
+				<label for="rate">年利率（%）</label>
+				<input id="rate" type="text" inputmode="decimal" value="2.15">
+				<p class="muted" data-for="MONTHLY">用來把每月扣款拆成本金和利息。</p>
+				<p class="muted" data-for="BULLET INTEREST_ONLY">用來估到期要付多少利息、每個月的應計利息。</p>
+
+				<div data-for="MONTHLY">
+					<label for="payment">每月扣款金額（照銀行）</label>
+					<input id="payment" type="text" inputmode="numeric" value="5133">
+					<p class="check" id="paymentCheck"></p>
+
+					<label for="payDay">每月扣款日</label>
+					<input id="payDay" type="number" min="1" max="31" value="1">
+
+					<label for="periods">總期數</label>
+					<input id="periods" type="number" min="1" max="600" value="84">
+					<p class="muted">7 年就是 84 期。第一期是撥款後的下一個扣款日。</p>
+				</div>
+
+				<div data-for="INTEREST_ONLY">
+					<label for="interestDay">每月繳息日</label>
+					<input id="interestDay" type="number" min="1" max="31" value="28">
+				</div>
+
+				<div data-for="BULLET INTEREST_ONLY">
+					<label for="dueDate">到期日</label>
+					<input id="dueDate" type="date" value="2027-07-28">
+				</div>
+
+				<label for="account">往來帳戶</label>
+				<select id="account"><option>土銀帳戶</option><option>玉山交割戶</option></select>
+				<p class="muted">撥款進這個帳戶，也從這個帳戶扣款。</p>
+
+				<label for="fee">開辦費、手續費（選填）</label>
+				<input id="fee" type="text" inputmode="numeric" placeholder="例如 3000">
+				<p class="muted">記在撥款日，算進借錢的成本，「賺贏利息」會一起扣。</p>
+
+				<div class="form-actions">
+					<button type="submit" class="btn btn-primary">儲存</button>
+					<span class="btn btn-link">取消</span>
+				</div>
+			</form>
+
+			<section class="account-card preview" aria-label="存好後的卡片">
+				<div class="account-card-header">
+					<strong id="pvName">土銀信貸</strong>
+					<span class="badge" id="pvMethod">每月固定還款</span>
+				</div>
+				<p class="muted" id="pvSub">土地銀行 · 2026-02-01 撥款 400,000</p>
+				<dl class="loan-facts" id="pvFacts"></dl>
+				<p class="muted" id="pvHint"></p>
+			</section>
+		</div>
+	</main>
+</div>
+<script>
+	// 樣稿用的簡單試算（正式版會放在 Java 的 Calculator，這裡只為了讓樣稿看起來像真的）
+	const $ = id => document.getElementById(id);
+	const fmt = n => Math.round(n).toLocaleString('en-US');
+	const today = new Date('2026-10-23');
+
+	function monthsBetween(a, b) { return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()); }
+
+	function render() {
+		const method = document.querySelector('input[name=method]:checked').value;
+		document.querySelectorAll('[data-for]').forEach(el => {
+			el.style.display = el.dataset.for.split(' ').includes(method) ? '' : 'none';
+		});
+		const amount = Number($('amount').value) || 0;
+		const rate = (Number($('rate').value) || 0) / 100;
+		const start = new Date($('date').value);
+		$('pvName').textContent = $('name').value || '（名稱）';
+		$('pvMethod').textContent = document.querySelector('input[name=method]:checked').closest('label').querySelector('strong').textContent
+			+ ($('pledge').checked ? ' · 質押' : '');
+		$('pvSub').textContent = `${$('bank').value} · ${$('date').value} 撥款 ${fmt(amount)}`;
+		const fee = Number($('fee').value) || 0;
+		const rows = [];
+		let hint = '';
+
+		if (method === 'MONTHLY') {
+			const payment = Number($('payment').value) || 0;
+			const n = Number($('periods').value) || 1;
+			const r = rate / 12;
+			const expected = r === 0 ? amount / n : amount * r / (1 - Math.pow(1 + r, -n));
+			const diff = Math.abs(expected - payment);
+			$('paymentCheck').className = 'check ' + (diff <= 1 ? 'check-ok' : 'check-bad');
+			$('paymentCheck').textContent = diff <= 1
+				? `✓ 和合約算出來的 ${fmt(expected)} 對得上`
+				: `✗ 用金額、利率、期數算出來是 ${fmt(expected)}，和銀行扣款差 ${fmt(diff)}；請確認金額或利率（系統還是以你填的扣款為準）`;
+			let remaining = amount, paidInterest = 0, paid = 0;
+			const done = Math.max(0, Math.min(n, monthsBetween(start, today) + (today.getDate() >= Number($('payDay').value) ? 0 : -1)));
+			for (let i = 0; i < done; i++) {
+				const interest = Math.ceil(remaining * r);
+				paidInterest += interest;
+				remaining -= (payment - interest);
+				paid++;
+			}
+			rows.push(['每月扣款', fmt(payment)], ['下次扣款', `2026-11-0${$('payDay').value}，剩 ${n - paid} 期`],
+				['剩餘本金', fmt(remaining)], ['累計已付利息', fmt(paidInterest + fee) + (fee ? `（含開辦費 ${fmt(fee)}）` : '')]);
+			hint = '每月扣款日自動記一筆扣款（拆成本金和利息）。';
+		}
+		else {
+			const due = new Date($('dueDate').value);
+			const days = Math.round((today - start) / 86400000);
+			const totalDays = Math.round((due - start) / 86400000);
+			const accrued = amount * rate * days / 365;
+			const atDue = amount * rate * totalDays / 365;
+			const left = Math.round((due - today) / 86400000);
+			if (method === 'BULLET') {
+				rows.push(['到期日', `${$('dueDate').value}（還有 ${left} 天）`], ['到期要還', `本金 ${fmt(amount)} ＋ 利息約 ${fmt(atDue)}`],
+					['到今天應計利息', fmt(accrued) + '（還沒付）'], ['每月扣款', '0（平常不用繳）']);
+				hint = '平常帳戶不扣錢；到期前 30 天提醒。到期時按「還本」，系統帶入本金和利息，照銀行的數字改好再存。';
+			}
+			else {
+				rows.push(['每月繳息', `約 ${fmt(amount * rate / 12)}（每月 ${$('interestDay').value} 號）`], ['到期日', `${$('dueDate').value}（還有 ${left} 天）`],
+					['到期要還', `本金 ${fmt(amount)}`]);
+				hint = '每月繳息日自動記一筆利息；到期前 30 天提醒還本。';
+			}
+			if (fee) rows.push(['開辦費', fmt(fee)]);
+		}
+		$('collateralBox').style.display = $('pledge').checked ? '' : 'none';
+		if ($('pledge').checked) {
+			// 擔保市值 ÷ 借款金額 ＝ 維持率（樣稿用；正式版用剩餘本金與最新收盤價）
+			let value = 0;
+			const picked = [];
+			document.querySelectorAll('.collateral-table tbody tr').forEach(tr => {
+				const cb = tr.querySelector('.cb'), cs = tr.querySelector('.cs');
+				cs.disabled = !cb.checked;
+				if (cb.checked) {
+					const shares = Math.min(Number(cs.value) || 0, Number(cb.dataset.held));
+					value += shares * Number(cb.dataset.price);
+					picked.push(tr.cells[1].title.split(' ')[0] + ' ' + shares.toLocaleString('en-US') + ' 股');
+				}
+			});
+			const pct = amount > 0 ? value * 100 / amount : 0;
+			const warn = Number($('warn').value), call = Number($('call').value);
+			const level = pct < call ? 'bad' : pct < warn ? 'warn' : 'ok';
+			$('maintCheck').className = 'check check-' + level;
+			$('maintCheck').textContent = picked.length === 0 ? '還沒勾選擔保股票，存好後也可以在卡片上補。'
+				: `維持率 ${pct.toFixed(2)}%（擔保市值 ${fmt(value)} ÷ 借款 ${fmt(amount)}）`
+					+ (level === 'bad' ? '，低於追繳線' : level === 'warn' ? '，低於提醒線' : '');
+			rows.push(['擔保股票', picked.join('、') || '—'],
+				['維持率', picked.length ? `${pct.toFixed(2)}%（提醒 ${warn}%／追繳 ${call}%）` : '—']);
+		}
+		$('pvFacts').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+		$('pvHint').textContent = hint;
+	}
+
+	document.querySelectorAll('input, select').forEach(el => el.addEventListener('input', render));
+	document.querySelectorAll('input[name=method], #pledge').forEach(el => el.addEventListener('change', () => {
+		if (el.value === 'BULLET' && el.checked) {
+			$('name').value = '玉山質押'; $('bank').value = '玉山銀行'; $('date').value = '2026-07-28';
+			$('amount').value = '100000'; $('rate').value = '4'; $('pledge').checked = true;
+		}
+		render();
+	}));
+	render();
+</script>
+</body>
+</html>
