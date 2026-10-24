@@ -330,6 +330,36 @@ class FundingStocksTest {
 			.hasMessage("這檔有 600 股設定為質押擔保，這樣持股只剩 500 股；請先到資金來源頁調整擔保股數");
 	}
 
+	/** 作廢質押時一併拿掉它的擔保股票（DR-046：擔保品是設定），之後賣出同一檔不再被擋。 */
+	@Test
+	void voidingPledgeRemovesItsCollateral() {
+		trades.create(buyWithLoan(0));
+		loans.setCollateral(pledge.getId(), "0056", 1000L);
+
+		loans.voidLoan(pledge.getId(), "記錯");
+
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pledge_collateral WHERE loan_id = ?", Long.class,
+				pledge.getId())).isZero();
+		trades.create(new TradeForm(TradeType.SELL, today, "0056", settlement, 1000L, new BigDecimal("60"), null,
+				null, null, List.of()));
+	}
+
+	/** 舊資料：已作廢借款還留著擔保列時，賣出與其他質押的擔保合計都不算它。 */
+	@Test
+	void collateralOfVoidedLoanIsIgnored() {
+		trades.create(buyWithLoan(0));
+		Loan second = loans.create(new LoanForm("第二筆質押", LoanType.PLEDGE, "玉山銀行", LoanOrigin.EXISTING,
+				new BigDecimal("100000"), today.minusDays(1), new BigDecimal("100000"), new BigDecimal("3"), null,
+				settlement, 25, null, null, null));
+		loans.setCollateral(pledge.getId(), "0056", 1000L);
+		jdbc.update("UPDATE loan SET voided = TRUE WHERE id = ?", pledge.getId());
+
+		loans.setCollateral(second.getId(), "0056", 1000L);
+		loans.setCollateral(second.getId(), "0056", 0L);
+		trades.create(new TradeForm(TradeType.SELL, today, "0056", settlement, 1000L, new BigDecimal("60"), null,
+				null, null, List.of()));
+	}
+
 	private LoanCard card() {
 		return loans.fundingView().loans().stream().filter(c -> c.id().equals(pledge.getId())).findFirst().orElseThrow();
 	}

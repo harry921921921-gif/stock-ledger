@@ -441,7 +441,7 @@ public class TradeService {
 
 	/** 質押的擔保股數合計不能超過持股（賣出或改股數後；spec 5.5）。 */
 	private void checkCollateral(Long userId, Portfolio portfolio, Long stockId) {
-		long pledged = collaterals.findByUserId(userId).stream()
+		long pledged = collaterals.findActiveByUserId(userId).stream()
 			.filter(c -> c.getStockId().equals(stockId))
 			.mapToLong(PledgeCollateral::getShares)
 			.sum();

@@ -355,7 +355,8 @@ public class LoanService {
 
 	/**
 	 * 作廢借款（例如起算本金打錯又已經開始記帳）：連同所有撥款、還本、利息一起作廢並寫修改紀錄，
-	 * 之後不出現在資金來源頁、不再自動記帳。不硬刪除。
+	 * 之後不出現在資金來源頁、不再自動記帳。不硬刪除；只有擔保股票是設定不是事件（DR-046），直接刪掉，
+	 * 不然會繼續擋住賣出。
 	 */
 	@Transactional
 	public void voidLoan(Long id, String reason) {
@@ -364,6 +365,7 @@ public class LoanService {
 			throw new LoanValidationException("還有股票交易用到這筆借款當資金來源；請先修改或作廢那些交易");
 		}
 		cashMovements.voidLoanMovements(loan.getId(), reason);
+		collaterals.findByUserIdAndLoanId(currentUser.id(), loan.getId()).forEach(collaterals::delete);
 		loan.markVoided();
 	}
 
@@ -395,7 +397,7 @@ public class LoanService {
 		Position position = tradeService.portfolio().positions().get(stock.getId());
 		long held = position == null ? 0 : position.shares();
 		// 同一檔股票可能同時擔保好幾筆質押：合計不能超過持股
-		long otherLoans = collaterals.findByUserId(userId).stream()
+		long otherLoans = collaterals.findActiveByUserId(userId).stream()
 			.filter(c -> c.getStockId().equals(stock.getId()) && !c.getLoanId().equals(loan.getId()))
 			.mapToLong(PledgeCollateral::getShares)
 			.sum();
