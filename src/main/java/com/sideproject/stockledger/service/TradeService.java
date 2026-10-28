@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.sideproject.stockledger.calculator.FeeCalculator;
+import com.sideproject.stockledger.calculator.LoanUsage;
 import com.sideproject.stockledger.calculator.MonthlyStockChange;
 import com.sideproject.stockledger.calculator.MonthlyStockChangeCalculator;
 import com.sideproject.stockledger.calculator.Portfolio;
@@ -31,6 +32,7 @@ import com.sideproject.stockledger.calculator.Position;
 import com.sideproject.stockledger.calculator.RealizedSale;
 import com.sideproject.stockledger.calculator.StockMetricsCalculator;
 import com.sideproject.stockledger.calculator.TradeEvent;
+import com.sideproject.stockledger.dto.AllocationCut;
 import com.sideproject.stockledger.dto.AllocationLine;
 import com.sideproject.stockledger.dto.DividendForm;
 import com.sideproject.stockledger.dto.DividendSuggestion;
@@ -567,6 +569,120 @@ public class TradeService {
 		portfolioReader.uncoveredLoan(currentUser.id()).ifPresent(message -> {
 			throw new TradeValidationException(message);
 		});
+	}
+
+	/**
+	 * 借款改小、不夠付已經用它買的股票時，要把哪幾筆交易裡這筆借款出的錢往下調（spec 4.8a-10、DR-051）：
+	 * <ol>
+	 * <li>從交易日最晚（同一天 id 最大）的開始往前，每調一筆（少掉目前的差額，最少到 0）就重算尚未投入的最低點；
+	 * 一輪不夠就再一輪（同一筆可以再往下調），到不再小於 0 為止。</li>
+	 * <li>還回去：從最早的那筆開始，在最低點不小於 0 的範圍內把調掉的錢盡量加回來，所以只調剛好需要的金額
+	 * （例如兩筆買進中間有再動撥時，不會兩筆都調滿）。</li>
+	 * </ol>
+	 * 只算不存。這筆借款沒有不夠、或是這筆借款的交易全部調到 0 也補不回來時，回傳空的（由呼叫端照原本的規則擋下）。
+	 */
+	@Transactional(readOnly = true)
+	public List<AllocationCut> shortfallAdjustments(Long loanId) {
+		Long userId = currentUser.id();
+		Map<Long, BigDecimal> adjusted = new HashMap<>();
+		BigDecimal lowest = lowestUndeployed(userId, loanId, adjusted);
+		if (lowest.signum() >= 0) {
+			return List.of();
+		}
+		Map<Long, BigDecimal> used = allocations.findByUserId(userId).stream()
+			.filter(a -> a.getLoanId().equals(loanId))
+			.collect(Collectors.toMap(SourceAllocation::getTradeId, SourceAllocation::getAmount, BigDecimal::add));
+		List<Trade> latestFirst = trades.findByUserIdAndVoidedFalse(userId).stream()
+			.filter(t -> used.containsKey(t.getId()))
+			.sorted(Comparator.comparing(Trade::getTradeDate).thenComparing(Trade::getId).reversed())
+			.toList();
+		Map<Long, Stock> stockById = latestFirst.isEmpty() ? Map.of()
+				: stocks.findByIdIn(latestFirst.stream().map(Trade::getStockId).distinct().toList()).stream()
+					.collect(Collectors.toMap(Stock::getId, s -> s));
+		// 1. 往下調：最晚的先，一輪不夠再一輪；一整輪都沒得調（全部 0 了）還是不夠 → 補不回來
+		boolean changed = true;
+		while (lowest.signum() < 0 && changed) {
+			changed = false;
+			for (Trade t : latestFirst) {
+				if (lowest.signum() >= 0) {
+					break;
+				}
+				BigDecimal current = adjusted.getOrDefault(t.getId(), used.get(t.getId()));
+				if (current.signum() <= 0) {
+					continue;
+				}
+				adjusted.put(t.getId(), current.add(lowest).max(BigDecimal.ZERO));   // lowest 是負的：少掉差額，最少到 0
+				lowest = lowestUndeployed(userId, loanId, adjusted);
+				changed = true;
+			}
+		}
+		if (lowest.signum() < 0) {
+			return List.of();
+		}
+		// 2. 還回去：最早的先。把這筆加回到原本的金額時最低點是 L（< 0 表示超過了），能加回的就是原本調掉的再扣 |L|
+		List<Trade> earliestFirst = latestFirst.reversed();
+		for (Trade t : earliestFirst) {
+			BigDecimal to = adjusted.get(t.getId());
+			BigDecimal from = used.get(t.getId());
+			if (to == null || to.compareTo(from) >= 0) {
+				continue;
+			}
+			adjusted.put(t.getId(), from);
+			BigDecimal full = lowestUndeployed(userId, loanId, adjusted);
+			if (full.signum() >= 0) {
+				continue;
+			}
+			BigDecimal giveBack = from.add(full).max(to);
+			adjusted.put(t.getId(), giveBack);
+			if (giveBack.compareTo(to) > 0 && lowestUndeployed(userId, loanId, adjusted).signum() < 0) {
+				adjusted.put(t.getId(), to);   // 保險：照理不會發生
+			}
+		}
+		List<AllocationCut> cuts = new ArrayList<>();
+		for (Trade t : latestFirst) {
+			BigDecimal from = used.get(t.getId());
+			BigDecimal to = adjusted.get(t.getId());
+			if (to != null && to.compareTo(from) < 0) {
+				Stock s = stockById.get(t.getStockId());
+				cuts.add(new AllocationCut(t.getId(), t.getTradeDate(), s.getCode() + " " + s.getName(), from, to));
+			}
+		}
+		return cuts;
+	}
+
+	/**
+	 * 照 {@link #shortfallAdjustments} 算出的結果，改交易的資金來源（差額改算自有，不另外記現金異動），
+	 * 每筆寫修改紀錄（欄位 allocation）。
+	 */
+	@Transactional
+	public void reduceLoanAllocations(Long loanId, List<AllocationCut> cuts, String reason) {
+		Long userId = currentUser.id();
+		String clean = cleanReason(reason);
+		LocalDateTime now = LocalDateTime.now(clock);
+		for (AllocationCut cut : cuts) {
+			Trade trade = findMineForEdit(cut.tradeId());
+			String before = allocationText(userId, trade.getId());
+			Map<Long, BigDecimal> kept = new LinkedHashMap<>();
+			allocations.findByUserIdAndTradeId(userId, trade.getId()).forEach(a -> kept.put(a.getLoanId(), a.getAmount()));
+			if (cut.to().signum() > 0) {
+				kept.put(loanId, cut.to());
+			}
+			else {
+				kept.remove(loanId);
+			}
+			allocations.deleteForTrade(userId, trade.getId());
+			saveAllocations(trade, kept);
+			String after = allocationText(userId, trade.getId());
+			if (!Objects.equals(before, after)) {
+				revisions.save(TradeRevision.of(trade.getId(), userId, now, TradeRevision.EDIT, "allocation", before,
+						after, clean));
+			}
+		}
+	}
+
+	private BigDecimal lowestUndeployed(Long userId, Long loanId, Map<Long, BigDecimal> adjusted) {
+		LoanUsage usage = portfolioReader.read(userId, loanId, adjusted).loans().get(loanId);
+		return usage == null ? BigDecimal.ZERO : usage.lowestUndeployed();
 	}
 
 	private Map<Long, BigDecimal> latestPrices(Collection<Long> stockIds, LocalDate asOf) {

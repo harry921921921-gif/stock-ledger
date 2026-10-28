@@ -30,10 +30,12 @@ import com.sideproject.stockledger.calculator.Portfolio;
 import com.sideproject.stockledger.calculator.Position;
 import com.sideproject.stockledger.calculator.StockMetricsCalculator;
 import com.sideproject.stockledger.calculator.RateChange;
+import com.sideproject.stockledger.dto.AllocationCut;
 import com.sideproject.stockledger.dto.CollateralLine;
 import com.sideproject.stockledger.dto.CollateralPick;
 import com.sideproject.stockledger.dto.FundingView;
 import com.sideproject.stockledger.dto.LoanCard;
+import com.sideproject.stockledger.dto.LoanEditResult;
 import com.sideproject.stockledger.dto.LoanForm;
 import com.sideproject.stockledger.dto.LoanHoldingLine;
 import com.sideproject.stockledger.dto.LoanPurchaseLine;
@@ -52,6 +54,7 @@ import com.sideproject.stockledger.entity.RepaymentMethod;
 import com.sideproject.stockledger.entity.Stock;
 import com.sideproject.stockledger.repository.CashAccountRepository;
 import com.sideproject.stockledger.repository.CashMovementRepository;
+import com.sideproject.stockledger.repository.CashMovementRevisionRepository;
 import com.sideproject.stockledger.repository.LoanRepository;
 import com.sideproject.stockledger.repository.PledgeCollateralRepository;
 import com.sideproject.stockledger.repository.RateSettingRepository;
@@ -77,7 +80,8 @@ public class LoanService {
 	private static final int MAX_NAME_LENGTH = 50;
 	private static final int MAX_PERIODS = 600;
 
-	static final String LOCKED = "起算日、起算本金、剩餘期數、第一期已經開始記帳，不能再改";
+	/** 修改借款後系統重算時寫的修改紀錄原因；有這個原因的紀錄不算使用者手改過（DR-051）。 */
+	public static final String EDIT_REASON = "借款資料修改後重算";
 
 	static final String NEGATIVE_PRINCIPAL = "這樣之後的剩餘本金會變成負數";
 
@@ -94,11 +98,14 @@ public class LoanService {
 	private final TradeService tradeService;
 	private final StockRepository stocks;
 	private final PledgeCollateralRepository collaterals;
+	private final CashMovementRevisionRepository revisions;
 
 	public LoanService(LoanRepository loans, RateSettingRepository rates, CashAccountRepository accounts,
 			CashMovementRepository movements, LoanFactsReader facts, LoanPostingService posting,
 			CashMovementService cashMovements, MoneyFormatter money, CurrentUser currentUser, Clock clock,
-			TradeService tradeService, StockRepository stocks, PledgeCollateralRepository collaterals) {
+			TradeService tradeService, StockRepository stocks, PledgeCollateralRepository collaterals,
+			CashMovementRevisionRepository revisions) {
+		this.revisions = revisions;
 		this.tradeService = tradeService;
 		this.stocks = stocks;
 		this.collaterals = collaterals;
@@ -199,6 +206,20 @@ public class LoanService {
 	}
 
 	/**
+	 * 到期日已經過了的提醒（不擋存檔，DR-051）。沒有到期日、到期日還沒到、或每月固定還款（用不到到期日）為 null。
+	 * 還款方式沒填的是 V11 以前的寫法，照類型推（信貸是每月固定還款）。
+	 */
+	@Transactional(readOnly = true)
+	public String dueWarning(LoanForm form) {
+		RepaymentMethod method = form.repaymentMethod() != null ? form.repaymentMethod()
+				: RepaymentMethod.legacyOf(form.type());
+		if (method == RepaymentMethod.MONTHLY_FIXED || form.dueDate() == null || !form.dueDate().isBefore(today())) {
+			return null;
+		}
+		return "到期日 " + form.dueDate() + " 已經過了。如果已經還清，這筆就不用記；如果有展延，請填展延後的到期日。";
+	}
+
+	/**
 	 * 每月固定還款：用金額、利率、期數算出的合約月付金和銀行扣款差超過 1 元時的提醒（不擋存檔，DR-048）。
 	 * 其他還款方式、或沒有填銀行扣款的舊借款為 null。
 	 */
@@ -212,9 +233,9 @@ public class LoanService {
 		if (f.payments().isEmpty()) {
 			return null;
 		}
-		BigDecimal bank = f.payments().get(0).amount();
+		BigDecimal bank = originalPayment(f.payments(), loan.getStartDate()).orElseThrow();
 		BigDecimal expected = InstallmentCalculator.monthlyPayment(f.installmentInput().startPrincipal(),
-				f.rates().get(0).annualRate(), loan.getRemainingPeriods());
+				originalRate(f.rates(), loan.getStartDate()), loan.getRemainingPeriods());
 		BigDecimal diff = expected.subtract(bank).abs();
 		if (diff.compareTo(BigDecimal.ONE) <= 0) {
 			return null;
@@ -236,46 +257,205 @@ public class LoanService {
 	}
 
 	/**
-	 * 修改名稱、銀行、原始金額、扣款日、帳戶、到期日；扣款日或帳戶改了從當月起生效（同 DR-037）。
-	 * 起點欄位（起算日、起算本金、剩餘期數、第一期）只有「既有借款、還沒有任何異動」時可以改（設計文件 11-5）；類型與方式不能改。
+	 * 修改借款：每個欄位隨時都能改（spec 4.8a-10、DR-051），只有新撥款或既有借款不能改。改了合約資料時：
+	 * 撥款與開辦費跟著改；原始利率、扣款金額改了，在起算日新增一個版本（同一天 id 大的優先，等於改正第一個版本）；
+	 * 自動記的每期依新合約重新對照（{@link LoanPostingService#reconcile}），使用者手改過的不動，和新合約不同的放進結果列出。
+	 * 表單沒送的類型、還款方式、利率當作沒改（之後的 REST API）。
+	 *
+	 * @param confirmShortfall 借款改小、不夠付已經用它買的股票時，是否確定把差額改算自有；false 時丟
+	 *                         {@link LoanShortfallException}（見 {@link #coverShortfall}）
 	 */
 	@Transactional
-	public Loan edit(Long id, LoanForm form) {
+	public LoanEditResult edit(Long id, LoanForm submitted, boolean confirmShortfall) {
+		Long userId = currentUser.id();
 		Loan loan = findForUpdate(id);
-		if (changed(form.type(), loan.getType()) || changed(form.origin(), loan.getOrigin())) {
-			throw new LoanValidationException("類型、新撥款或既有借款建立後不能改");
+		if (changed(submitted.origin(), loan.getOrigin())) {
+			throw new LoanValidationException("新撥款或既有借款建立後不能改");
 		}
-		boolean startChanged = changed(form.startDate(), loan.getStartDate())
-				|| changedAmount(form.startPrincipal(), loan.getStartPrincipal())
-				|| changed(form.remainingPeriods(), loan.getRemainingPeriods())
-				|| changed(form.firstPeriod(), loan.getFirstPeriod());
-		LoanFacts f = facts.read(loan);
-		if (startChanged && (loan.getOrigin() != LoanOrigin.EXISTING || !f.movements().isEmpty())) {
-			throw new LoanValidationException(LOCKED);
+		LoanFacts before = facts.read(loan);
+		RepaymentMethod method = orElse(submitted.repaymentMethod(), loan.getRepaymentMethod());
+		boolean monthly = method == RepaymentMethod.MONTHLY_FIXED;
+		BigDecimal principal = orElse(submitted.startPrincipal(), loan.getStartPrincipal());
+		BigDecimal original = submitted.originalAmount() != null ? submitted.originalAmount()
+				: loan.getOrigin() == LoanOrigin.NEW ? principal : loan.getOriginalAmount();
+		BigDecimal ratePercent = submitted.annualRatePercent() != null ? submitted.annualRatePercent()
+				: exactPercent(originalRate(before.rates(), loan.getStartDate()));
+		LoanForm form = normalize(new LoanForm(submitted.name(), orElse(submitted.type(), loan.getType()),
+				submitted.bank(), loan.getOrigin(), original, orElse(submitted.startDate(), loan.getStartDate()),
+				principal, ratePercent, submitted.disburseAccountId(), submitted.payAccountId(), submitted.payDay(),
+				monthly ? orElse(submitted.remainingPeriods(), loan.getRemainingPeriods()) : submitted.remainingPeriods(),
+				keptFirstPeriod(loan, submitted), submitted.dueDate(), submitted.repaymentMethod(), submitted.monthlyPayment(),
+				submitted.fee(), submitted.collateral(), submitted.warnPercent(), submitted.callPercent()), method);
+		BigDecimal rate = validate(form, method);
+		if (monthly && before.active().stream().filter(m -> m.getType() == CashMovementType.LOAN_DISBURSEMENT).count() > 1) {
+			// 攤還表把所有撥款當成第 1 期起的本金：再動撥那筆會被當成第 1 期就有，整張重算（和 redraw 的檢查同理）
+			throw new LoanValidationException("有再動撥的借款不能改成每月固定還款");
 		}
-		LoanForm merged = new LoanForm(form.name(), loan.getType(), form.bank(), loan.getOrigin(),
-				form.originalAmount() == null ? loan.getOriginalAmount() : form.originalAmount(),
-				orElse(form.startDate(), loan.getStartDate()), orElse(form.startPrincipal(), loan.getStartPrincipal()),
-				f.rates().get(0).annualRate().multiply(HUNDRED), loan.getDisburseAccountId(), form.payAccountId(),
-				form.payDay(),
-				orElse(form.remainingPeriods(), loan.getRemainingPeriods()),
-				orElse(form.firstPeriod(), loan.getFirstPeriod()), form.dueDate());
-		validate(merged, loan.getRepaymentMethod());
-		if (startChanged) {
-			loan.changeStart(merged.startDate(), merged.startPrincipal(), merged.remainingPeriods(),
-					merged.firstPeriod());
-			// 起算日提前時，第一個利率版本也要從新的起算日生效
-			RateChange first = f.rates().get(0);
-			if (merged.startDate().isBefore(first.effectiveDate())) {
-				rates.save(RateSetting.loanRate(currentUser.id(), loan.getId(), first.annualRate(), merged.startDate(),
-						LocalDateTime.now(clock)));
-			}
+
+		LocalDate oldStart = loan.getStartDate();
+		BigDecimal oldPrincipal = loan.getStartPrincipal();
+		Long oldDisburse = loan.getDisburseAccountId();
+		Long oldPay = loan.getPayAccountId();
+		LoanType oldType = loan.getType();
+		LocalDateTime now = LocalDateTime.now(clock);
+		boolean contractChanged = contractChanged(loan, before, form, method, rate);
+		if (!contractChanged) {
+			// 只改名稱、銀行、到期日、原始金額（或開辦費）：每期紀錄一筆都不動，照平常補記（舊借款 DR-037 的起點也不動）
+			loan.change(form.name(), form.bank(), form.originalAmount(), form.payAccountId(), form.payDay(),
+					form.dueDate());
+			reviseFee(loan, before, form.fee(), false, false, now);
+			posting.postDue(loan, today());
+			requireLoansCovered();
+			return new LoanEditResult(loan, List.of(), false);
 		}
-		loan.change(merged.name(), merged.bank(), merged.originalAmount(), merged.payAccountId(), merged.payDay(),
-				merged.dueDate(), YearMonth.from(today()));
-		posting.postDue(loan, today());
-		requireLoansCovered();
-		return loan;
+		loan.reviseContract(form.type(), method, form.startDate(), form.startPrincipal(), form.disburseAccountId(),
+				form.remainingPeriods(), form.firstPeriod());
+		// 到期一次還本金要有到期日（資料庫 ck_loan_method）：同一個交易裡接著設定
+		loan.change(form.name(), form.bank(), form.originalAmount(), form.payAccountId(), form.payDay(),
+				form.dueDate());
+
+		// 撥款與開辦費：只跟著改了的欄位走，沒改的欄位保留使用者對過銀行明細的值
+		boolean startChanged = !loan.getStartDate().equals(oldStart);
+		disbursement(before).ifPresent(m -> cashMovements.followLoan(m,
+				startChanged ? loan.getStartDate() : m.getMovementDate(),
+				Objects.equals(loan.getDisburseAccountId(), oldDisburse) ? m.getAccountId() : loan.getDisburseAccountId(),
+				loan.getStartPrincipal().compareTo(oldPrincipal) == 0 ? m.getAmount() : loan.getStartPrincipal(),
+				EDIT_REASON));
+		reviseFee(loan, before, form.fee(), startChanged, !Objects.equals(loan.getPayAccountId(), oldPay), now);
+
+		correctRate(loan, before.rates(), rate, oldStart, now);
+		if (monthly && form.monthlyPayment() != null) {
+			correctPayment(loan, before.payments(), form.monthlyPayment(), oldStart, now);
+		}
+		if (oldType == LoanType.PLEDGE && loan.getType() != LoanType.PLEDGE) {
+			// 不再是股票質押：擔保股票是設定不是事件（DR-046），直接拿掉，不然會繼續擋住賣出
+			collaterals.findByUserIdAndLoanId(userId, loan.getId()).forEach(collaterals::delete);
+		}
+		if (monthly) {
+			checkSchedule(loan);
+		}
+		List<CashMovement> kept;
+		try {
+			kept = posting.reconcile(loan, today(),
+					new HashSet<>(revisions.findUserEditedMovementIds(userId, EDIT_REASON)));
+		}
+		catch (IllegalArgumentException ex) {
+			// 攤還表算不下去（例如保留的期數之後扣款比利息少）
+			throw new LoanValidationException(ex.getMessage());
+		}
+		if (facts.read(loan).minRemaining().signum() < 0) {
+			throw new LoanValidationException(NEGATIVE_PRINCIPAL);
+		}
+		coverShortfall(loan, confirmShortfall);
+		return new LoanEditResult(loan, kept.stream().map(LoanEditResult.KeptPeriod::of).toList(),
+				!Objects.equals(loan.getPayAccountId(), oldPay));
+	}
+
+	/** 表單沒送第一期月份（修改畫面對新撥款不送）時：撥款日和扣款日都沒改就沿用原本的，只有改了才重新推算。 */
+	private static YearMonth keptFirstPeriod(Loan loan, LoanForm submitted) {
+		if (submitted.firstPeriod() != null) {
+			return submitted.firstPeriod();
+		}
+		boolean startKept = submitted.startDate() == null || submitted.startDate().equals(loan.getStartDate());
+		return startKept && Objects.equals(submitted.payDay(), loan.getPayDay()) ? loan.getFirstPeriod() : null;
+	}
+
+	/**
+	 * 合約資料有沒有改（spec 4.8a-10）：撥款日、金額、還款方式、是否股票質押、原始利率、期數、第一期、扣款金額、
+	 * 扣款日、往來帳戶。只有改了才重新對照每期紀錄；只改名稱、銀行、到期日、原始金額時一筆紀錄都不動。
+	 */
+	private static boolean contractChanged(Loan loan, LoanFacts before, LoanForm form, RepaymentMethod method,
+			BigDecimal rate) {
+		boolean monthly = method == RepaymentMethod.MONTHLY_FIXED;
+		boolean paymentChanged = monthly && form.monthlyPayment() != null
+				&& originalPayment(before.payments(), loan.getStartDate())
+					.map(p -> p.compareTo(form.monthlyPayment()) != 0)
+					.orElse(true);
+		return !form.startDate().equals(loan.getStartDate())
+				|| form.startPrincipal().compareTo(loan.getStartPrincipal()) != 0
+				|| method != loan.getRepaymentMethod()
+				|| form.type() != loan.getType()
+				|| rate.compareTo(originalRate(before.rates(), loan.getStartDate())) != 0
+				|| (monthly && !Objects.equals(form.remainingPeriods(), loan.getRemainingPeriods()))
+				|| (monthly && !Objects.equals(form.firstPeriod(), loan.getFirstPeriod()))
+				|| paymentChanged
+				|| !Objects.equals(form.payDay(), loan.getPayDay())
+				|| !Objects.equals(form.payAccountId(), loan.getPayAccountId())
+				|| !Objects.equals(form.disburseAccountId(), loan.getDisburseAccountId());
+	}
+
+	/** 撥款那一筆：和借款一起建立的那筆（id 最小）；之後的是質押再動撥，撥款日改了也不會搞混。既有借款沒有。 */
+	private static Optional<CashMovement> disbursement(LoanFacts f) {
+		// 含作廢的一起找：原本的撥款被使用者作廢時，不能改到再動撥那筆
+		return f.movements().stream()
+			.filter(m -> m.getType() == CashMovementType.LOAN_DISBURSEMENT && m.getPeriod() == null)
+			.min(java.util.Comparator.comparing(CashMovement::getId))
+			.filter(m -> !m.isVoided());
+	}
+
+	/** 開辦費：原本有、新的是 0 或空 → 作廢；原本沒有、新的有 → 新增；都有 → 跟著改（記在撥款日、往來帳戶）。 */
+	private void reviseFee(Loan loan, LoanFacts before, BigDecimal fee, boolean startChanged, boolean accountChanged,
+			LocalDateTime now) {
+		Optional<CashMovement> current = before.active().stream()
+			.filter(m -> m.getType() == CashMovementType.LOAN_FEE)
+			.findFirst();
+		boolean wanted = fee != null && fee.signum() > 0;
+		if (current.isPresent() && !wanted) {
+			cashMovements.voidForLoanEdit(current.get(), EDIT_REASON);
+		}
+		else if (current.isPresent()) {
+			CashMovement m = current.get();
+			cashMovements.followLoan(m, startChanged ? loan.getStartDate() : m.getMovementDate(),
+					accountChanged ? loan.getPayAccountId() : m.getAccountId(), fee, EDIT_REASON);
+		}
+		else if (wanted) {
+			movements.saveAndFlush(CashMovement.ofLoan(loan, CashMovementType.LOAN_FEE, loan.getStartDate(),
+					loan.getPayAccountId(), fee, null, now));
+		}
+	}
+
+	/**
+	 * 修改原始利率（改正打錯的第一個版本，和「新增利率版本」分開，DR-051）：在起算日新增一個版本，同一天 id 大的優先。
+	 * 起算日提前時，新的起算日一定要有版本；利率也改了的話，原本起算日的那個版本也要蓋掉。
+	 */
+	private void correctRate(Loan loan, List<RateChange> versions, BigDecimal rate, LocalDate oldStart,
+			LocalDateTime now) {
+		LocalDate start = loan.getStartDate();
+		boolean changedRate = rate.compareTo(originalRate(versions, oldStart)) != 0;
+		boolean covered = versions.stream().anyMatch(r -> !r.effectiveDate().isAfter(start));
+		if (changedRate || !covered) {
+			rates.save(RateSetting.loanRate(currentUser.id(), loan.getId(), rate, start, now));
+		}
+		if (changedRate && start.isBefore(oldStart)) {
+			rates.save(RateSetting.loanRate(currentUser.id(), loan.getId(), rate, oldStart, now));
+		}
+	}
+
+	/** 修改銀行每月扣款金額（第一個版本），做法同 {@link #correctRate}。 */
+	private void correctPayment(Loan loan, List<PaymentChange> versions, BigDecimal payment, LocalDate oldStart,
+			LocalDateTime now) {
+		LocalDate start = loan.getStartDate();
+		Optional<BigDecimal> original = originalPayment(versions, oldStart);
+		boolean changedPayment = original.map(o -> o.compareTo(payment) != 0).orElse(true);
+		boolean covered = versions.stream().anyMatch(p -> !p.effectiveDate().isAfter(start));
+		if (changedPayment || !covered) {
+			rates.save(RateSetting.loanPayment(currentUser.id(), loan.getId(), payment, start, now));
+		}
+		if (changedPayment && original.isPresent() && start.isBefore(oldStart)) {
+			rates.save(RateSetting.loanPayment(currentUser.id(), loan.getId(), payment, oldStart, now));
+		}
+	}
+
+	/** 原始利率：起算日適用的版本；起算日以前沒有版本時是最早的版本。 */
+	private static BigDecimal originalRate(List<RateChange> versions, LocalDate start) {
+		boolean covered = versions.stream().anyMatch(r -> !r.effectiveDate().isAfter(start));
+		return covered ? RateChange.rateOn(versions, start) : versions.get(0).annualRate();
+	}
+
+	/** 原始的銀行每月扣款：起算日適用的版本，沒有就是最早的版本；V11 以前的借款沒有版本（empty）。 */
+	private static Optional<BigDecimal> originalPayment(List<PaymentChange> versions, LocalDate start) {
+		return PaymentChange.amountOn(versions, start)
+			.or(() -> versions.stream().findFirst().map(PaymentChange::amount));
 	}
 
 	/** 新的年利率版本：信貸從生效日之後的第一期起重算月付金（DR-018）；質押從生效日起按日計息。 */
@@ -668,6 +848,31 @@ public class LoanService {
 		return stripped.scale() < 0 ? stripped.setScale(0) : stripped;
 	}
 
+	/** 年利率比率 → 表單上的百分比，不四捨五入（利率小數最多 4 位，0.021525 → 2.1525）。 */
+	private static BigDecimal exactPercent(BigDecimal ratio) {
+		BigDecimal stripped = ratio.multiply(HUNDRED).stripTrailingZeros();
+		return stripped.scale() < 0 ? stripped.setScale(0) : stripped;
+	}
+
+	/**
+	 * 修改借款之後，這筆借款不夠付已經用它買的股票（spec 4.8a-10、DR-051）：還沒確定 → 丟
+	 * {@link LoanShortfallException}，整個修改回滾；確定了 → 從最晚的交易開始把這筆借款出的錢往下調，差額改算自有
+	 * （不另外扣帳戶的錢）。之後再檢查一次所有借款；別筆借款的問題（或調了也補不回來的）照原本的規則擋下。
+	 */
+	private void coverShortfall(Loan loan, boolean confirmShortfall) {
+		List<AllocationCut> cuts = tradeService.shortfallAdjustments(loan.getId());
+		if (!cuts.isEmpty()) {
+			BigDecimal shortfall = cuts.stream()
+				.map(c -> c.from().subtract(c.to()))
+				.reduce(BigDecimal.ZERO, BigDecimal::add);
+			if (!confirmShortfall) {
+				throw new LoanShortfallException(shortfall, cuts, money.plain(shortfall));
+			}
+			tradeService.reduceLoanAllocations(loan.getId(), cuts, EDIT_REASON);
+		}
+		requireLoansCovered();
+	}
+
 	/** 借款作廢以外的改動（改本金、日期、還本）之後：買股票用掉的錢不能超過借到的。 */
 	private void requireLoansCovered() {
 		try {
@@ -731,14 +936,29 @@ public class LoanService {
 		return value.setScale(0, RoundingMode.HALF_UP);
 	}
 
-	/** 修改表單的預設值（金額轉成整數元；利率不在這裡改，用利率版本）。 */
+	/**
+	 * 修改表單的預設值（金額轉成整數元）：目前的所有欄位，利率是原始利率、扣款金額是原始的銀行扣款、開辦費是目前的金額
+	 * （DR-051）。V11 以前建立、還沒有扣款金額（或每月繳息沒有到期日）的借款，還款方式帶 null，照舊的寫法檢查。
+	 */
 	@Transactional(readOnly = true)
 	public LoanForm form(Long id) {
 		Loan loan = find(id);
+		LoanFacts f = facts.read(loan);
+		RepaymentMethod method = loan.getRepaymentMethod();
+		boolean legacy = method == RepaymentMethod.MONTHLY_FIXED ? f.payments().isEmpty()
+				: method == RepaymentMethod.INTEREST_ONLY && loan.getDueDate() == null;
+		BigDecimal payment = method != RepaymentMethod.MONTHLY_FIXED ? null
+				: originalPayment(f.payments(), loan.getStartDate()).map(LoanService::whole).orElse(null);
+		BigDecimal fee = f.active().stream()
+			.filter(m -> m.getType() == CashMovementType.LOAN_FEE)
+			.map(m -> whole(m.getAmount()))
+			.findFirst()
+			.orElse(null);
 		return new LoanForm(loan.getName(), loan.getType(), loan.getBank(), loan.getOrigin(),
-				whole(loan.getOriginalAmount()), loan.getStartDate(), whole(loan.getStartPrincipal()), null,
+				whole(loan.getOriginalAmount()), loan.getStartDate(), whole(loan.getStartPrincipal()),
+				exactPercent(originalRate(f.rates(), loan.getStartDate())),
 				loan.getDisburseAccountId(), loan.getPayAccountId(), loan.getPayDay(), loan.getRemainingPeriods(),
-				loan.getFirstPeriod(), loan.getDueDate());
+				loan.getFirstPeriod(), loan.getDueDate(), legacy ? null : method, payment, fee, List.of(), null, null);
 	}
 
 	public LocalDate today() {
@@ -794,8 +1014,10 @@ public class LoanService {
 				throw new LoanValidationException("第一期扣款日要在起算日之後");
 			}
 		}
-		if (method != RepaymentMethod.MONTHLY_FIXED && form.dueDate() != null && form.dueDate().isBefore(form.startDate())) {
-			throw new LoanValidationException("到期日不能早於起算日");
+		// 每月固定還款用不到到期日（期數決定）：留著的舊值不檢查
+		if (method != RepaymentMethod.MONTHLY_FIXED && form.dueDate() != null
+				&& !form.dueDate().isAfter(form.startDate())) {
+			throw new LoanValidationException("到期日要晚於撥款日");
 		}
 		findMyAccount(form.payAccountId(), "請選擇扣款帳戶");
 		if (form.origin() == LoanOrigin.NEW) {
@@ -936,10 +1158,6 @@ public class LoanService {
 	/** 表單沒送（之後的 REST API）就當作沒改。 */
 	private static boolean changed(Object submitted, Object current) {
 		return submitted != null && !Objects.equals(submitted, current);
-	}
-
-	private static boolean changedAmount(BigDecimal submitted, BigDecimal current) {
-		return submitted != null && submitted.compareTo(current) != 0;
 	}
 
 }

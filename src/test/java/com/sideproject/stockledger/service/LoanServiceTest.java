@@ -22,6 +22,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.sideproject.stockledger.TestcontainersConfig;
 import com.sideproject.stockledger.dto.CashAccountForm;
@@ -65,6 +66,9 @@ class LoanServiceTest {
 
 	@Autowired
 	private com.sideproject.stockledger.repository.RateSettingRepository rateRepository;
+
+	@Autowired
+	private org.springframework.transaction.PlatformTransactionManager txManager;
 
 	@Autowired
 	private AppUserRepository users;
@@ -168,39 +172,43 @@ class LoanServiceTest {
 		assertThat(totalAssets.systemBalance(bank)).isEqualByComparingTo("100000");
 	}
 
-	/** 改扣款日：從當月起生效（同 DR-037）。 */
+	/** 改扣款日：DR-051 起從起算月份起重新對照（取代 DR-037 的「從當月起生效」），記帳起點不動。 */
 	@Test
-	void editPayDayMovesPostingFrom() {
+	void editPayDayKeepsPostingFromAtStart() {
 		Loan loan = service.create(withStart(existingCredit(), today.minusMonths(2)));
 
-		service.edit(loan.getId(), withPayDay(withStart(existingCredit(), today.minusMonths(2)), 10));
+		service.edit(loan.getId(), withPayDay(withStart(existingCredit(), today.minusMonths(2)), 10), false);
 
-		assertThat(service.find(loan.getId()).getPostingFrom()).isEqualTo(thisMonth);
+		assertThat(service.find(loan.getId()).getPostingFrom()).isEqualTo(YearMonth.from(today.minusMonths(2)));
 		assertThat(service.find(loan.getId()).getPayDay()).isEqualTo(10);
 	}
 
-	/** 換到新開的帳戶：只從當月起扣款，新帳戶的初始現金餘額日期不用早於起算日（審查 Important 8）。 */
+	/** 換到新開的帳戶：新帳戶的初始現金餘額日期不用早於起算日（審查 Important 8、DR-047）；記帳起點不動（DR-051）。 */
 	@Test
 	void editPayAccountToNewerAccount() {
 		Loan loan = service.create(withStart(existingCredit(), today.minusMonths(2)));
 		Long newer = accounts.create(new CashAccountForm("新帳戶", CashAccountType.BANK_DEMAND, "台銀")).getId();
 		movements.setOpening(newer, new OpeningForm(thisMonth.atDay(1), new BigDecimal("1000")));
 
-		service.edit(loan.getId(), withPayAccount(withStart(existingCredit(), today.minusMonths(2)), newer));
+		service.edit(loan.getId(), withPayAccount(withStart(existingCredit(), today.minusMonths(2)), newer), false);
 
 		assertThat(service.find(loan.getId()).getPayAccountId()).isEqualTo(newer);
-		assertThat(service.find(loan.getId()).getPostingFrom()).isEqualTo(thisMonth);
+		assertThat(service.find(loan.getId()).getPostingFrom()).isEqualTo(YearMonth.from(today.minusMonths(2)));
 	}
 
-	/** 起點欄位有自動記帳後不能改（設計文件 11-5）。 */
+	/** DR-051：已經開始記帳後也能改起點欄位；自動記的期數依新的期數重算並寫修改紀錄。 */
 	@Test
-	void lockedFieldsAfterPosting() {
+	void startFieldsEditableAfterPosting() {
 		Loan loan = service.create(withFirstPeriod(withStart(existingCredit(), today.minusMonths(2)),
 				thisMonth.minusMonths(1)));
 
-		assertThatThrownBy(() -> service.edit(loan.getId(), withPeriods(withFirstPeriod(withStart(existingCredit(),
-				today.minusMonths(2)), thisMonth.minusMonths(1)), 59)))
-			.hasMessage("起算日、起算本金、剩餘期數、第一期已經開始記帳，不能再改");
+		service.edit(loan.getId(), withPeriods(withFirstPeriod(withStart(existingCredit(), today.minusMonths(2)),
+				thisMonth.minusMonths(1)), 59), false);
+
+		assertThat(service.find(loan.getId()).getRemainingPeriods()).isEqualTo(59);
+		assertThat(count("SELECT COUNT(*) FROM cash_movement_revision r JOIN cash_movement m "
+				+ "ON r.cash_movement_id = m.id WHERE m.loan_id = ? AND r.reason = ?", loan.getId(),
+				LoanService.EDIT_REASON)).isPositive();
 	}
 
 	@Test
@@ -389,10 +397,31 @@ class LoanServiceTest {
 			.isInstanceOf(NotFoundException.class);
 		assertThatThrownBy(() -> service.addRate(loan.getId(), new RateVersionForm(today, BigDecimal.ONE)))
 			.isInstanceOf(NotFoundException.class);
-		assertThatThrownBy(() -> service.edit(loan.getId(), existingCredit())).isInstanceOf(NotFoundException.class);
+		assertThatThrownBy(() -> service.edit(loan.getId(), existingCredit(), false)).isInstanceOf(NotFoundException.class);
 		assertThatThrownBy(() -> service.redraw(loan.getId(), new PrincipalForm(today, BigDecimal.TEN, bank)))
 			.isInstanceOf(NotFoundException.class);
 		assertThatThrownBy(() -> service.form(loan.getId())).isInstanceOf(NotFoundException.class);
+	}
+
+	/** DR-051：類型、還款方式、起點都能改，且真的寫進資料庫（到期一次還本金要有到期日，所以接著用 change 設定）。 */
+	@Test
+	void reviseContractPersistsMethodAndType() {
+		Loan loan = service.create(withStart(existingCredit(), today.minusMonths(3)));
+		Long userId = loan.getUserId();
+		new TransactionTemplate(txManager).executeWithoutResult(s -> {
+			Loan managed = loanRepository.findForUpdate(loan.getId(), userId).orElseThrow();
+			managed.reviseContract(LoanType.PLEDGE, RepaymentMethod.BULLET, today.minusMonths(2),
+					new BigDecimal("300000"), loan.getDisburseAccountId(), null, null);
+			managed.change(managed.getName(), managed.getBank(), managed.getOriginalAmount(), managed.getPayAccountId(),
+					managed.getPayDay(), today.plusMonths(12));
+		});
+
+		Loan reloaded = loanRepository.findByIdAndUserId(loan.getId(), userId).orElseThrow();
+		assertThat(reloaded.getRepaymentMethod()).isEqualTo(RepaymentMethod.BULLET);
+		assertThat(reloaded.getType()).isEqualTo(LoanType.PLEDGE);
+		assertThat(reloaded.getStartDate()).isEqualTo(today.minusMonths(2));
+		assertThat(reloaded.getStartPrincipal()).isEqualByComparingTo("300000");
+		assertThat(reloaded.getPostingFrom()).isEqualTo(YearMonth.from(today.minusMonths(2)));
 	}
 
 	/** 土地銀行信貸：既有借款，今天起算、剩 60 期、下個月起扣款，年利率 2.5%。 */

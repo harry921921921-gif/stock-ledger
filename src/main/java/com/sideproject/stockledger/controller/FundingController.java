@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import com.sideproject.stockledger.dto.LoanEditResult;
 import com.sideproject.stockledger.dto.LoanForm;
 import com.sideproject.stockledger.dto.PrincipalForm;
 import com.sideproject.stockledger.dto.RateVersionForm;
@@ -25,6 +26,7 @@ import com.sideproject.stockledger.entity.LoanType;
 import com.sideproject.stockledger.entity.RepaymentMethod;
 import com.sideproject.stockledger.service.CashAccountService;
 import com.sideproject.stockledger.service.LoanService;
+import com.sideproject.stockledger.service.LoanShortfallException;
 import com.sideproject.stockledger.service.LoanValidationException;
 import com.sideproject.stockledger.service.TradeService;
 
@@ -36,6 +38,7 @@ import com.sideproject.stockledger.service.TradeService;
 public class FundingController {
 
 	private static final String LOAN_FORM = "funding/loan-form";
+	private static final String SHORTFALL_CONFIRM = "funding/shortfall-confirm";
 	private static final String RATE_FORM = "funding/rate-form";
 	private static final String PRINCIPAL_FORM = "funding/principal-form";
 
@@ -124,32 +127,73 @@ public class FundingController {
 			tokens.restore(session, formToken);
 			throw ex;
 		}
-		String warning = loans.paymentWarning(saved.getId());
+		String warning = joinWarnings(loans.paymentWarning(saved.getId()), loans.dueWarning(form));
 		redirect.addFlashAttribute("message", "已新增「" + saved.getName() + "」" + (warning == null ? "" : "。" + warning));
 		return "redirect:/funding";
+	}
+
+	private static String joinWarnings(String first, String second) {
+		if (first == null) {
+			return second;
+		}
+		return second == null ? first : first + "。" + second;
 	}
 
 	@GetMapping("/funding/{id}/edit")
 	public String edit(@PathVariable Long id, Model model) {
 		Loan loan = loans.find(id);
-		model.addAttribute("form", loans.form(loan.getId()));
+		LoanForm form = loans.form(loan.getId());
+		model.addAttribute("form", form);
 		model.addAttribute("loanId", id);
 		model.addAttribute("editMethod", loan.getRepaymentMethod().name());
+		// V11 以前的借款（還款方式帶 null）：畫面不送還款方式，照舊的規則檢查，不會要求填扣款金額
+		model.addAttribute("legacyEdit", form.repaymentMethod() == null);
 		return LOAN_FORM;
 	}
 
 	@PostMapping("/funding/{id}/edit")
-	public String update(@PathVariable Long id, @ModelAttribute("form") LoanForm form, BindingResult result,
+	public String update(@PathVariable Long id, @ModelAttribute("form") LoanForm submitted, BindingResult result,
+			@RequestParam(required = false) Boolean pledge, Model model, RedirectAttributes redirect) {
+		return saveEdit(id, submitted, result, pledge, false, model, redirect);
+	}
+
+	/** 借款改小、不夠付已經用它買的股票，使用者看過提示按「確定修改」：把差額改算自有再存。 */
+	@PostMapping("/funding/{id}/edit/confirm-shortfall")
+	public String confirmShortfall(@PathVariable Long id, @ModelAttribute("form") LoanForm submitted,
+			BindingResult result, @RequestParam(required = false) Boolean pledge, Model model,
+			RedirectAttributes redirect) {
+		return saveEdit(id, submitted, result, pledge, true, model, redirect);
+	}
+
+	private String saveEdit(Long id, LoanForm submitted, BindingResult result, Boolean pledge, boolean confirmShortfall,
 			Model model, RedirectAttributes redirect) {
-		model.addAttribute("editMethod", loans.find(id).getRepaymentMethod().name());
+		Loan current = loans.find(id);
+		// 修改表單和新增一樣用「這是股票質押」勾選框決定類型；舊的寫法直接送 type
+		LoanForm form = submitted.repaymentMethod() == null ? submitted : withType(submitted,
+				Boolean.TRUE.equals(pledge) ? LoanType.PLEDGE : LoanType.CREDIT);
+		model.addAttribute("form", form);
 		model.addAttribute("loanId", id);
+		model.addAttribute("editMethod", (form.repaymentMethod() != null ? form.repaymentMethod()
+				: current.getRepaymentMethod()).name());
+		model.addAttribute("legacyEdit", form.repaymentMethod() == null);
 		if (result.hasErrors()) {
 			return LOAN_FORM;
 		}
 		try {
-			Loan saved = loans.edit(id, form);
-			redirect.addFlashAttribute("message", "已修改「" + saved.getName() + "」");
+			LoanEditResult edited = loans.edit(id, form, confirmShortfall);
+			String warning = joinWarnings(loans.paymentWarning(edited.loan().getId()), loans.dueWarning(form));
+			redirect.addFlashAttribute("message", "已修改「" + edited.loan().getName() + "」"
+					+ (warning == null ? "" : "。" + warning));
+			if (!edited.kept().isEmpty()) {
+				redirect.addFlashAttribute("kept", edited.kept());
+				redirect.addFlashAttribute("keptAccountMoved", edited.payAccountChanged());
+			}
 			return "redirect:/funding";
+		}
+		catch (LoanShortfallException ex) {
+			model.addAttribute("shortfallMessage", ex.getMessage());
+			model.addAttribute("cuts", ex.cuts());
+			return SHORTFALL_CONFIRM;
 		}
 		catch (LoanValidationException ex) {
 			result.reject("invalid", ex.getMessage());

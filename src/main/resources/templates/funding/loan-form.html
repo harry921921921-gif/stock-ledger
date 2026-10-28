@@ -15,7 +15,7 @@
 		<p class="breadcrumb"><a th:href="@{/funding}">資金來源</a></p>
 		<h1 th:text="${loanId == null} ? '新增借款' : '修改借款'">新增借款</h1>
 		<p class="muted" th:if="${loanId == null}">照借款合約和銀行實際扣款填，撥款日照真實日期（比帳戶初始現金餘額日期早的紀錄不影響帳戶餘額）。系統以你填的扣款金額為準，只用利率把它拆成本金和利息。</p>
-		<p class="muted" th:if="${loanId != null}">還款方式與類型不能改；撥款日、金額、期數只有還沒開始記帳時可以改。利率請用「新增利率」，到期展延就改到期日。</p>
+		<p class="muted" th:if="${loanId != null}">每個欄位都能改。改了合約資料，系統會重算自動記的每期紀錄；你改過的期數不會動。</p>
 
 		<p class="muted" th:if="${#lists.isEmpty(myAccounts)}">還沒有現金帳戶，請先<a th:href="@{/settings/accounts/new}">新增帳戶</a>。</p>
 
@@ -123,14 +123,34 @@
 				</div>
 			</th:block>
 
-			<!-- ===================== 修改 ===================== -->
+			<!-- ===================== 修改：欄位和新增一樣，每個都能改（DR-051） ===================== -->
 			<th:block th:if="${loanId != null}">
-				<p>
-					<span class="label-text">類型</span> <span th:text="*{type} != null ? *{type.label()} : '—'">信貸</span>
-					<span class="label-text" th:if="*{origin?.name() == 'EXISTING'}">方式</span> <span th:if="*{origin?.name() == 'EXISTING'}">既有借款（v1.8 以前建立）</span>
-				</p>
-				<input type="hidden" th:field="*{type}">
 				<input type="hidden" id="origin" th:field="*{origin}">
+				<p class="muted" th:if="*{origin?.name() == 'EXISTING'}">這是既有借款（v1.8 以前建立）：填起算日的剩餘本金和剩餘期數。</p>
+
+				<!-- V11 以前建立的舊借款：不送還款方式（disabled 不會送出，app.js 仍看選中的那個切換欄位），照舊的規則記帳 -->
+				<th:block th:if="${legacyEdit}">
+					<p class="label-text" th:each="m : ${repaymentMethods}" th:if="${m.name() == editMethod}"
+							th:text="|還款方式：${m.label()}|">還款方式：每月固定還款</p>
+					<p class="muted">這筆是 V11 以前建立的借款，照原本的規則記帳，還款方式和是否股票質押不能在這裡改。</p>
+					<input type="hidden" name="type" th:value="*{type}">
+				</th:block>
+				<p class="label-text" th:unless="${legacyEdit}">還款方式</p>
+				<div class="method-group" th:hidden="${legacyEdit}">
+					<label class="method" th:each="m : ${repaymentMethods}">
+						<input type="radio" name="repaymentMethod" th:value="${m}" th:checked="${m.name() == editMethod}"
+								th:disabled="${legacyEdit}">
+						<span><strong th:text="${m.label()}">每月固定還款</strong>
+							<small th:switch="${m.name()}">
+								<span th:case="'MONTHLY_FIXED'">每月扣一筆，裡面有本金和利息（一般信貸、房貸）</span>
+								<span th:case="'BULLET'">平常不用繳，到期一次付清（例如股票質押）</span>
+								<span th:case="*">每月只繳利息，本金到期才還</span>
+							</small></span>
+					</label>
+				</div>
+
+				<label class="checkbox-line" th:unless="${legacyEdit}"><input type="checkbox" name="pledge" value="true"
+						th:checked="*{type?.name() == 'PLEDGE'}"> 這是股票質押（擔保股票、維持率提醒線在資金來源頁的借款卡片上改）</label>
 
 				<div data-show-source="origin" data-show-for="EXISTING">
 					<label for="originalAmount">原始借款金額</label>
@@ -143,27 +163,57 @@
 				<label for="startPrincipal" th:text="*{origin?.name() == 'EXISTING'} ? '起算本金' : '借款金額'">借款金額</label>
 				<input id="startPrincipal" type="text" inputmode="numeric" th:field="*{startPrincipal}" placeholder="整數元" required>
 
-				<label for="payAccountId">往來帳戶</label>
+				<label for="annualRatePercent">年利率（%）</label>
+				<input id="annualRatePercent" type="text" inputmode="decimal" th:field="*{annualRatePercent}" placeholder="例如 2.15" required>
+				<p class="muted">這是借款一開始的利率。之後調整利率請用「新增利率」。</p>
+
+				<div data-show-source="repaymentMethod" data-show-for="MONTHLY_FIXED">
+					<!-- 舊借款照公式算每期（DR-018），不填扣款金額 -->
+					<th:block th:unless="${legacyEdit}">
+						<label for="monthlyPayment">每月扣款金額（照銀行）</label>
+						<input id="monthlyPayment" type="text" inputmode="numeric" th:field="*{monthlyPayment}" placeholder="例如 5133">
+					</th:block>
+
+					<label for="payDay">每月扣款日</label>
+					<input id="payDay" type="number" min="1" max="31" th:field="*{payDay}" placeholder="幾號（1～31）">
+
+					<label for="remainingPeriods" th:text="*{origin?.name() == 'EXISTING'} ? '剩餘期數' : '總期數'">總期數</label>
+					<input id="remainingPeriods" type="number" min="1" max="600" th:field="*{remainingPeriods}">
+
+					<th:block th:if="*{origin?.name() == 'EXISTING'}">
+						<label for="firstPeriod">第一期扣款月份</label>
+						<input id="firstPeriod" type="month" th:field="*{firstPeriod}">
+					</th:block>
+				</div>
+
+				<div data-show-source="repaymentMethod" data-show-for="INTEREST_ONLY">
+					<label for="interestDay">每月繳息日</label>
+					<input id="interestDay" type="number" min="1" max="31" name="payDay" th:value="*{payDay}" placeholder="幾號（1～31）">
+				</div>
+
+				<div data-show-source="repaymentMethod" data-show-for="BULLET INTEREST_ONLY">
+					<label for="dueDate">到期日</label>
+					<input id="dueDate" type="date" th:field="*{dueDate}">
+					<p class="muted">到期展延就改成新的到期日。</p>
+				</div>
+
+				<th:block th:if="*{origin?.name() == 'NEW'}">
+					<label for="disburseAccountId">撥入帳戶</label>
+					<select id="disburseAccountId" th:field="*{disburseAccountId}">
+						<option value="">請選擇</option>
+						<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">土銀帳戶</option>
+					</select>
+				</th:block>
+
+				<label for="payAccountId">扣款帳戶</label>
 				<select id="payAccountId" th:field="*{payAccountId}">
 					<option value="">請選擇</option>
 					<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">土銀帳戶</option>
 				</select>
 
-				<label for="payDay">每月扣款日或繳息日</label>
-				<input id="payDay" type="number" min="1" max="31" th:field="*{payDay}" placeholder="幾號（1～31）" required>
-
-				<th:block th:if="${editMethod == 'MONTHLY_FIXED'}">
-					<label for="remainingPeriods" th:text="*{origin?.name() == 'EXISTING'} ? '剩餘期數' : '總期數'">總期數</label>
-					<input id="remainingPeriods" type="number" min="1" max="600" th:field="*{remainingPeriods}">
-
-					<label for="firstPeriod">第一期扣款月份</label>
-					<input id="firstPeriod" type="month" th:field="*{firstPeriod}">
-				</th:block>
-				<th:block th:unless="${editMethod == 'MONTHLY_FIXED'}">
-					<label for="dueDate">到期日</label>
-					<input id="dueDate" type="date" th:field="*{dueDate}">
-					<p class="muted">到期展延就改成新的到期日。</p>
-				</th:block>
+				<label for="fee">開辦費、手續費（選填）</label>
+				<input id="fee" type="text" inputmode="numeric" th:field="*{fee}" placeholder="例如 3000">
+				<p class="muted">記在撥款日；清空就是沒有開辦費。</p>
 			</th:block>
 
 			<div class="form-actions">

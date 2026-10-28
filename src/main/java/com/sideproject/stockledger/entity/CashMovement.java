@@ -66,8 +66,11 @@ public class CashMovement {
 	@Column(name = "recurring_item_id", updatable = false)
 	private Long recurringItemId;
 
-	/** 屬於哪一期：該期所在月份的 1 號。固定收支一定有；借款自動記的還本與利息也有（V9）。 */
-	@Column(name = "period", updatable = false)
+	/**
+	 * 屬於哪一期：該期所在月份的 1 號。固定收支一定有；借款自動記的還本與利息也有（V9）。
+	 * 只有修改借款時系統作廢的那一期會改成 null（{@link #releasePeriod()}，DR-051）。
+	 */
+	@Column(name = "period")
 	private LocalDate period;
 
 	/** 借款撥款、還本、利息屬於哪一筆借款；其他類型為 null（V9）。 */
@@ -205,6 +208,17 @@ public class CashMovement {
 	public void markVoided() {
 		requireNotVoided();
 		this.voided = true;
+	}
+
+	/**
+	 * 修改借款時系統重算作廢的那一期（DR-051）：作廢後讓出期別，新的合約之後還可以在同一期記一筆；
+	 * 使用者自己作廢的期數保留期別，不再自動補（DR-040）。呼叫端先寫修改紀錄。
+	 */
+	public void releasePeriod() {
+		if (!voided || loanId == null) {
+			throw new IllegalStateException("只有作廢的借款紀錄可以讓出期別");
+		}
+		this.period = null;
 	}
 
 	private void requireNotVoided() {

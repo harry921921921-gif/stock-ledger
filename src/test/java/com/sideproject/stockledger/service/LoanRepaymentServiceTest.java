@@ -282,6 +282,29 @@ class LoanRepaymentServiceTest {
 		assertThat(c.amountAtDue()).isEqualByComparingTo(new BigDecimal("100000").add(c.accruedInterest()));
 	}
 
+	/** DR-051：到期日要晚於撥款日（等於也不行）。 */
+	@Test
+	void dueDateMustBeAfterStartDate() {
+		LocalDate today = LocalDate.now(clock);
+		assertThatThrownBy(() -> loans.create(dueBullet(today.minusDays(10), today.minusDays(10))))
+			.hasMessage("到期日要晚於撥款日");
+	}
+
+	/** 到期日已過只提醒、不擋存檔。 */
+	@Test
+	void pastDueDateOnlyWarns() {
+		LocalDate today = LocalDate.now(clock);
+		LoanForm form = dueBullet(today.minusDays(100), today.minusDays(1));
+		assertThat(loans.dueWarning(form)).isEqualTo("到期日 " + today.minusDays(1)
+				+ " 已經過了。如果已經還清，這筆就不用記；如果有展延，請填展延後的到期日。");
+		assertThat(loans.create(form).getId()).isNotNull();
+		assertThat(loans.dueWarning(dueBullet(today.minusDays(100), today.plusDays(30)))).isNull();
+	}
+
+	private LoanForm dueBullet(LocalDate start, LocalDate due) {
+		return withDue(withStart(bullet(List.of(), null), start), due);
+	}
+
 	@Test
 	void otherUsersLoanNotFound() {
 		Loan loan = loans.create(bullet(List.of(), null));

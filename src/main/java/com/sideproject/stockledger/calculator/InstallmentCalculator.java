@@ -30,6 +30,7 @@ public final class InstallmentCalculator {
 
 	/**
 	 * 某一期實際記下的本金與利息（沒作廢的異動加總）。作廢的期數傳 (0, 0)：也算已經過去，本金留到最後一期。
+	 * 其中一項是 null 表示那一項照公式算（修改借款時只保留使用者手改過的那一項，DR-051）。
 	 */
 	public record Posted(BigDecimal principal, BigDecimal interest) {
 	}
@@ -136,8 +137,10 @@ public final class InstallmentCalculator {
 			}
 			BigDecimal principal = left == 1 ? remaining : payment.subtract(interest).min(remaining);
 			Posted posted = in.posted().get(period);
-			if (posted != null) {
+			if (posted != null && posted.principal() != null) {
 				principal = posted.principal();
+			}
+			if (posted != null && posted.interest() != null) {
 				interest = posted.interest();
 			}
 			remaining = remaining.subtract(principal);

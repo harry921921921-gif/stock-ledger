@@ -21,6 +21,13 @@
 		</div>
 
 		<p class="alert alert-info" th:if="${message}" th:text="${message}">已新增</p>
+		<div class="alert alert-warning" th:if="${kept != null and !#lists.isEmpty(kept)}">
+			<ul>
+				<li th:each="k : ${kept}" th:text="|${k.period()} ${k.type().label()} ${#numbers.formatInteger(k.amount(), 1, 'COMMA')} 元|">2026-08 借款利息 700 元</li>
+			</ul>
+			<p th:if="${keptAccountMoved}">這幾期你改過，沒有自動重算，請確認；它們也留在原本的帳戶。</p>
+			<p th:unless="${keptAccountMoved}">這幾期你改過，沒有自動重算，請確認。</p>
+		</div>
 
 		<section class="stat-grid" aria-label="關鍵數字">
 			<div class="stat-card">

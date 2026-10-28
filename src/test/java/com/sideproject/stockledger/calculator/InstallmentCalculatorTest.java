@@ -176,6 +176,17 @@ class InstallmentCalculatorTest {
 			.hasMessage("每月扣款 500 元比當期利息 717 元少");
 	}
 
+	/** 只保留手改過的利息（本金 null）：本金照公式算，利息用實際金額；下一期照常（DR-051）。 */
+	@Test
+	void postedWithOnlyInterestKeepsFormulaPrincipal() {
+		List<Installment> s = InstallmentCalculator.schedule(input(List.of(), List.of(),
+				Map.of(FIRST, new InstallmentCalculator.Posted(null, new BigDecimal("700")))));
+
+		assertThat(s.get(0).interest()).isEqualByComparingTo("700");
+		assertThat(s.get(0).principal()).isEqualByComparingTo("6265");
+		assertThat(s.get(0).remainingAfter()).isEqualByComparingTo("393735");
+	}
+
 	private static InstallmentCalculator.Input bank(List<PaymentChange> payments) {
 		return new InstallmentCalculator.Input(P, 84, MARCH, 1,
 				List.of(new RateChange(LocalDate.of(2026, 2, 1), new BigDecimal("0.0215"))), List.of(), Map.of(),

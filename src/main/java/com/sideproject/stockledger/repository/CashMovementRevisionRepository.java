@@ -19,4 +19,12 @@ public interface CashMovementRevisionRepository extends Repository<CashMovementR
 	@Query("select distinct r.cashMovementId from CashMovementRevision r where r.userId = :userId")
 	List<Long> findRevisedMovementIds(@Param("userId") Long userId);
 
+	/**
+	 * 使用者自己改過（或作廢過）的現金事件 id：有一筆修改紀錄的原因不是系統重算時寫的 systemReason
+	 * （沒填原因的也算使用者改的）。修改借款時用來判斷哪些期數要保留（DR-051）。
+	 */
+	@Query("select distinct r.cashMovementId from CashMovementRevision r where r.userId = :userId "
+			+ "and (r.reason is null or r.reason <> :systemReason)")
+	List<Long> findUserEditedMovementIds(@Param("userId") Long userId, @Param("systemReason") String systemReason);
+
 }

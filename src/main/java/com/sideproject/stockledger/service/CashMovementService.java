@@ -230,6 +230,50 @@ public class CashMovementService {
 	}
 
 	/**
+	 * 借款修改後，跟著改它的撥款、開辦費或自動記的那一期（日期、帳戶、金額），寫修改紀錄（DR-051）。
+	 * 由 LoanService／LoanPostingService 呼叫，借款已經鎖住、確認是登入者的；三個都沒變就什麼都不寫。
+	 * 剩餘本金與借款是否夠付股票由 LoanService 在全部改完後一起檢查（中間的狀態可能暫時不合）。
+	 */
+	@Transactional
+	public void followLoan(CashMovement m, LocalDate date, Long accountId, BigDecimal amount, String reason) {
+		requireMine(m);
+		if (m.getMovementDate().equals(date) && Objects.equals(m.getAccountId(), accountId)
+				&& m.getAmount().compareTo(amount) == 0) {
+			return;
+		}
+		Map<String, String> before = snapshot(m);
+		m.change(date, accountId, null, amount, m.getNote());
+		writeEditRevisions(m, before, cleanReason(reason));
+		flush(m);
+	}
+
+	/**
+	 * 借款修改後新合約裡沒有的那一期（或不要的開辦費）：作廢並寫修改紀錄；自動記的那一期同時讓出期別
+	 * （也寫一筆 period 的修改紀錄），之後新合約可以在同一期再記（DR-051）。由 LoanService／LoanPostingService 呼叫。
+	 */
+	@Transactional
+	public void voidForLoanEdit(CashMovement m, String reason) {
+		requireMine(m);
+		String cleanReason = cleanReason(reason);
+		LocalDateTime now = LocalDateTime.now(clock);
+		revisions.save(CashMovementRevision.of(m.getId(), currentUser.id(), now, CashMovementRevision.VOID, "voided",
+				"false", "true", cleanReason));
+		m.markVoided();
+		if (m.getPeriod() != null) {
+			revisions.save(CashMovementRevision.of(m.getId(), currentUser.id(), now, CashMovementRevision.EDIT,
+					"period", m.getPeriod().toString(), null, cleanReason));
+			m.releasePeriod();
+		}
+		flush(m);
+	}
+
+	private void requireMine(CashMovement m) {
+		if (!Objects.equals(m.getUserId(), currentUser.id())) {
+			throw new NotFoundException("找不到這筆異動");
+		}
+	}
+
+	/**
 	 * 股票交易修改後，跟著改它自動記的那筆現金異動（日期、帳戶、金額），寫修改紀錄。由 TradeService 呼叫，
 	 * 交易已經確認是登入者的。
 	 */

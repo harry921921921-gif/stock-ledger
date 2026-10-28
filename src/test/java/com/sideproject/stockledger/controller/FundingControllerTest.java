@@ -62,6 +62,12 @@ class FundingControllerTest {
 	@Autowired
 	private Clock clock;
 
+	@Autowired
+	private com.sideproject.stockledger.service.TradeService trades;
+
+	@Autowired
+	private com.sideproject.stockledger.security.AppUserDetailsService userDetailsService;
+
 	private LocalDate today;
 	private YearMonth thisMonth;
 	private Long amyId;
@@ -352,6 +358,164 @@ class FundingControllerTest {
 			.andExpect(content().string(containsString("value=\"100000\"")));
 	}
 
+	// ---------- 修改借款：每個欄位都能改（spec 4.8a-10、DR-051） ----------
+
+	private Long createBulletLoan(String fee) throws Exception {
+		MockHttpSession session = new MockHttpSession();
+		mvc.perform(post("/funding/new").session(session).with(csrf()).param("formToken", openNewForm(session))
+				.params(bulletEditParams(today.minusMonths(2).toString(), "100000", fee)))
+			.andExpect(redirectedUrl("/funding"));
+		return jdbc.queryForObject("SELECT MAX(id) FROM loan", Long.class);
+	}
+
+	/** 修改表單送出的欄位（和新增一樣）：到期一次還本金＋利息的股票質押。 */
+	private org.springframework.util.LinkedMultiValueMap<String, String> bulletEditParams(String startDate,
+			String principal, String fee) {
+		var p = new org.springframework.util.LinkedMultiValueMap<String, String>();
+		p.add("name", "玉山質押");
+		p.add("bank", "玉山銀行");
+		p.add("repaymentMethod", "BULLET");
+		p.add("pledge", "true");
+		p.add("origin", "NEW");
+		p.add("startDate", startDate);
+		p.add("startPrincipal", principal);
+		p.add("annualRatePercent", "4");
+		p.add("disburseAccountId", bank.toString());
+		p.add("payAccountId", bank.toString());
+		p.add("dueDate", today.plusMonths(9).toString());
+		if (fee != null) {
+			p.add("fee", fee);
+		}
+		return p;
+	}
+
+	private BigDecimal disbursementAmount(Long loan) {
+		return jdbc.queryForObject("SELECT amount FROM cash_movement WHERE loan_id = ? AND type = 'LOAN_DISBURSEMENT' "
+				+ "AND voided = FALSE", BigDecimal.class, loan);
+	}
+
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void editCanChangeStartDateAndAmount() throws Exception {
+		Long loan = createBulletLoan(null);
+		String newStart = today.minusMonths(1).toString();
+
+		mvc.perform(post("/funding/{id}/edit", loan).with(csrf()).params(bulletEditParams(newStart, "80000", null)))
+			.andExpect(redirectedUrl("/funding"))
+			.andExpect(flash().attribute("message", containsString("已修改「玉山質押」")));
+
+		assertThat(disbursementAmount(loan)).isEqualByComparingTo("80000");
+		assertThat(jdbc.queryForObject("SELECT start_date FROM loan WHERE id = ?", java.sql.Date.class, loan).toLocalDate())
+			.isEqualTo(today.minusMonths(1));
+	}
+
+	/** 只改名稱：開辦費和撥入帳戶都要保留（表單一定要把 fee、disburseAccountId 送回來）。 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void editingOnlyTheNameKeepsFeeAndDisbursementAccount() throws Exception {
+		Long loan = createBulletLoan("3000");
+		String html = mvc.perform(get("/funding/{id}/edit", loan)).andExpect(status().isOk())
+			.andReturn().getResponse().getContentAsString();
+		assertThat(html).contains("name=\"fee\"").contains("value=\"3000\"").contains("name=\"disburseAccountId\"")
+			.contains("name=\"repaymentMethod\"").contains("name=\"pledge\"");
+
+		var params = bulletEditParams(today.minusMonths(2).toString(), "100000", "3000");
+		params.set("name", "玉山質押（改名）");
+		mvc.perform(post("/funding/{id}/edit", loan).with(csrf()).params(params)).andExpect(redirectedUrl("/funding"));
+
+		assertThat(jdbc.queryForObject("SELECT name FROM loan WHERE id = ?", String.class, loan)).isEqualTo("玉山質押（改名）");
+		assertThat(jdbc.queryForObject("SELECT amount FROM cash_movement WHERE loan_id = ? AND type = 'LOAN_FEE' "
+				+ "AND voided = FALSE", BigDecimal.class, loan)).isEqualByComparingTo("3000");
+		assertThat(jdbc.queryForObject("SELECT account_id FROM cash_movement WHERE loan_id = ? "
+				+ "AND type = 'LOAN_DISBURSEMENT' AND voided = FALSE", Long.class, loan)).isEqualTo(bank);
+	}
+
+	private void buyWithLoan(Long loan, LocalDate date, String code, long shares, String price, String amount) {
+		jdbc.update("INSERT IGNORE INTO stock (code, name, kind, dividends_per_year, updated_at) "
+				+ "VALUES (?, '元大台灣50', 'ETF', 2, NOW())", code);
+		// MockMvc 每個請求結束都會清掉登入資訊，直接呼叫 Service 前要重新登入
+		var details = userDetailsService.loadUserByUsername("fc-amy");
+		org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+				org.springframework.security.authentication.UsernamePasswordAuthenticationToken.authenticated(details, null,
+						details.getAuthorities()));
+		trades.create(new com.sideproject.stockledger.dto.TradeForm(com.sideproject.stockledger.entity.TradeType.BUY,
+				date, code, bank, shares, new BigDecimal(price), null, null, null,
+				java.util.List.of(new com.sideproject.stockledger.dto.AllocationLine(loan, new BigDecimal(amount)))));
+	}
+
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void shortfallShowsConfirmPage() throws Exception {
+		Long loan = createBulletLoan(null);
+		buyWithLoan(loan, today.minusMonths(1), "0050", 1000, "73.5", "73500");
+
+		mvc.perform(post("/funding/{id}/edit", loan).with(csrf())
+				.params(bulletEditParams(today.minusMonths(2).toString(), "50000", null)))
+			.andExpect(status().isOk())
+			.andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.view().name("funding/shortfall-confirm"))
+			.andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.model().attributeExists("cuts"))
+			.andExpect(content().string(containsString("差 23,500 元")))
+			.andExpect(content().string(containsString("0050")))
+			.andExpect(content().string(containsString("/funding/" + loan + "/edit/confirm-shortfall")))
+			.andExpect(content().string(containsString("name=\"startPrincipal\"")));
+
+		assertThat(disbursementAmount(loan)).isEqualByComparingTo("100000");
+	}
+
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void confirmShortfallSaves() throws Exception {
+		Long loan = createBulletLoan(null);
+		buyWithLoan(loan, today.minusMonths(1), "0050", 1000, "73.5", "73500");
+
+		mvc.perform(post("/funding/{id}/edit/confirm-shortfall", loan).with(csrf())
+				.params(bulletEditParams(today.minusMonths(2).toString(), "50000", null)))
+			.andExpect(redirectedUrl("/funding"));
+
+		assertThat(disbursementAmount(loan)).isEqualByComparingTo("50000");
+		assertThat(jdbc.queryForObject("SELECT amount FROM source_allocation WHERE loan_id = ?", BigDecimal.class, loan))
+			.isEqualByComparingTo("50000");
+	}
+
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void editOthersLoanIsNotFound() throws Exception {
+		Long benId = users.findByUsername("fc-ben").orElseThrow().getId();
+		Long benBank = insertAccount(benId, "班的帳戶");
+		jdbc.update("INSERT INTO loan (user_id, name, loan_type, repayment_method, bank, original_amount, origin, start_date, "
+				+ "start_principal, pay_account_id, pay_day, posting_from, created_at) VALUES (?, '班的質押', 'PLEDGE', "
+				+ "'INTEREST_ONLY', '銀行', 1000, 'EXISTING', ?, 1000, ?, 25, ?, NOW())", benId, today, benBank, thisMonth.atDay(1));
+		Long loan = jdbc.queryForObject("SELECT MAX(id) FROM loan", Long.class);
+
+		mvc.perform(post("/funding/{id}/edit", loan).with(csrf()).params(bulletEditParams(today.toString(), "1000", null)))
+			.andExpect(status().isNotFound());
+		mvc.perform(post("/funding/{id}/edit/confirm-shortfall", loan).with(csrf())
+				.params(bulletEditParams(today.toString(), "1000", null))).andExpect(status().isNotFound());
+	}
+
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void keptPeriodsAreListedAfterEdit() throws Exception {
+		var kept = java.util.List.of(new com.sideproject.stockledger.dto.LoanEditResult.KeptPeriod(1L,
+				YearMonth.of(2026, 8), com.sideproject.stockledger.entity.CashMovementType.LOAN_INTEREST, new BigDecimal("700.0000")));
+
+		mvc.perform(get("/funding").flashAttr("kept", kept))
+			.andExpect(content().string(containsString("2026-08 借款利息 700 元")))
+			.andExpect(content().string(containsString("這幾期你改過，沒有自動重算，請確認。")))
+			.andExpect(content().string(not(containsString("它們也留在原本的帳戶"))));
+	}
+
+	/** 這次修改換了扣款帳戶：才提醒手改過的期數還留在原本的帳戶（是否換帳戶由 Service 判斷，畫面不算）。 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void keptPeriodsMentionOldAccountWhenPayAccountChanged() throws Exception {
+		var kept = java.util.List.of(new com.sideproject.stockledger.dto.LoanEditResult.KeptPeriod(1L,
+				YearMonth.of(2026, 8), com.sideproject.stockledger.entity.CashMovementType.LOAN_INTEREST, new BigDecimal("700.0000")));
+
+		mvc.perform(get("/funding").flashAttr("kept", kept).flashAttr("keptAccountMoved", true))
+			.andExpect(content().string(containsString("這幾期你改過，沒有自動重算，請確認；它們也留在原本的帳戶。")));
+	}
+
 	private org.springframework.util.LinkedMultiValueMap<String, String> monthlyParams(String ratePercent) {
 		var p = new org.springframework.util.LinkedMultiValueMap<String, String>();
 		p.add("name", "土銀信貸");
@@ -383,6 +547,75 @@ class FundingControllerTest {
 		p.add("remainingPeriods", "60");
 		p.add("firstPeriod", thisMonth.plusMonths(1).toString());
 		return p;
+	}
+
+	/**
+	 * V11 以前建立的每月固定還款（沒有扣款金額版本）：修改畫面不帶還款方式（照舊的規則），送回畫面上的值、只改名稱，
+	 * 每期紀錄、修改紀錄、利率版本一筆都不動（DR-018 照公式算的寫法繼續用）。
+	 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void legacyMonthlyRenameViaEditPageTouchesNothing() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+		LocalDate start = today.minusMonths(3).withDayOfMonth(1);
+		var create = creditParams();
+		create.set("startDate", start.toString());
+		create.set("firstPeriod", YearMonth.from(start).plusMonths(1).toString());
+		mvc.perform(post("/funding/new").session(session).with(csrf()).param("formToken", openNewForm(session))
+				.params(create))
+			.andExpect(redirectedUrl("/funding"));
+		Long loan = jdbc.queryForObject("SELECT id FROM loan WHERE user_id = ?", Long.class, amyId);
+		java.util.List<String> movementsBefore = loanRows(loan);
+		int revisionsBefore = jdbc.queryForObject("SELECT COUNT(*) FROM cash_movement_revision", Integer.class);
+		java.util.List<String> ratesBefore = rateRows(loan);
+		assertThat(movementsBefore).isNotEmpty();
+
+		String html = mvc.perform(get("/funding/{id}/edit", loan)).andExpect(status().isOk())
+			.andReturn().getResponse().getContentAsString();
+		// 畫面送出的值（有 JavaScript 時藏起來的欄位不送）：還款方式只有可以送出的那個選項才帶
+		var params = new org.springframework.util.LinkedMultiValueMap<String, String>();
+		params.add("name", "土銀信貸（改名）");
+		params.add("bank", "土地銀行");
+		params.add("origin", "EXISTING");
+		params.add("originalAmount", "400000");
+		params.add("startDate", start.toString());
+		params.add("startPrincipal", "400000");
+		params.add("annualRatePercent", "2.5");
+		params.add("payAccountId", bank.toString());
+		params.add("payDay", "5");
+		params.add("remainingPeriods", "60");
+		params.add("firstPeriod", YearMonth.from(start).plusMonths(1).toString());
+		params.add("fee", "");
+		assertThat(html).contains("value=\"400000\"").contains("value=\"2.5\"").contains("value=\"60\"")
+			.contains("value=\"" + YearMonth.from(start).plusMonths(1) + "\"");
+		Matcher method = Pattern.compile("<input type=\"radio\" name=\"repaymentMethod\" value=\"(\\w+)\" checked=\"checked\">")
+			.matcher(html);
+		if (method.find()) {
+			params.add("repaymentMethod", method.group(1));
+		}
+		if (html.contains("name=\"type\" value=\"CREDIT\"")) {
+			params.add("type", "CREDIT");
+		}
+
+		mvc.perform(post("/funding/{id}/edit", loan).with(csrf()).params(params))
+			.andExpect(redirectedUrl("/funding"));
+
+		assertThat(jdbc.queryForObject("SELECT name FROM loan WHERE id = ?", String.class, loan)).isEqualTo("土銀信貸（改名）");
+		assertThat(loanRows(loan)).isEqualTo(movementsBefore);
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cash_movement_revision", Integer.class))
+			.isEqualTo(revisionsBefore);
+		assertThat(rateRows(loan)).isEqualTo(ratesBefore);
+		assertThat(html).contains("還款方式：每月固定還款");
+	}
+
+	private java.util.List<String> loanRows(Long loan) {
+		return jdbc.queryForList("SELECT CONCAT(id, '|', type, '|', movement_date, '|', account_id, '|', amount, '|', "
+				+ "voided) FROM cash_movement WHERE loan_id = ? ORDER BY id", String.class, loan);
+	}
+
+	private java.util.List<String> rateRows(Long loan) {
+		return jdbc.queryForList("SELECT CONCAT(id, '|', kind, '|', `value`, '|', effective_date) FROM rate_setting "
+				+ "WHERE loan_id = ? ORDER BY id", String.class, loan);
 	}
 
 	private String openNewForm(MockHttpSession session) throws Exception {

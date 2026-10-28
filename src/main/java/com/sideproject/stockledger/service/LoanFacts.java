@@ -112,10 +112,15 @@ record LoanFacts(Loan loan, List<RateChange> rates, List<CashMovement> movements
 
 	/** 本金變成 0 的日期（之後沒有再動撥）；還沒還清為 empty。 */
 	Optional<LocalDate> payoffDate() {
-		List<PrincipalChange> changes = principalChanges().stream()
+		return payoffDate(startBalance(), principalChanges());
+	}
+
+	/** 同上，但本金變動由呼叫端給（修改借款時用「新合約應有的」本金變動，DR-051）。 */
+	static Optional<LocalDate> payoffDate(BigDecimal startBalance, List<PrincipalChange> principalChanges) {
+		List<PrincipalChange> changes = principalChanges.stream()
 			.sorted((a, b) -> a.date().compareTo(b.date()))
 			.toList();
-		BigDecimal balance = startBalance();
+		BigDecimal balance = startBalance;
 		LocalDate payoff = null;
 		for (PrincipalChange c : changes) {
 			balance = balance.add(c.delta());

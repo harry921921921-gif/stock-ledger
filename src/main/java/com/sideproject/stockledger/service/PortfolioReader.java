@@ -52,10 +52,30 @@ class PortfolioReader {
 
 	@Transactional(readOnly = true)
 	Portfolio read(Long userId) {
+		return read(userId, null, Map.of());
+	}
+
+	/**
+	 * 假設某筆借款在幾筆交易裡出的錢改成別的金額（0 ＝ 不出），算出投資組合；只算不存
+	 * （借款改小時試算要調哪幾筆，DR-051）。
+	 *
+	 * @param loanAmountByTrade 交易 id → 這筆借款改成出多少
+	 */
+	@Transactional(readOnly = true)
+	Portfolio read(Long userId, Long loanId, Map<Long, BigDecimal> loanAmountByTrade) {
 		Map<Long, Map<Long, BigDecimal>> allocationByTrade = new HashMap<>();
 		for (SourceAllocation a : allocations.findByUserId(userId)) {
 			allocationByTrade.computeIfAbsent(a.getTradeId(), k -> new HashMap<>()).put(a.getLoanId(), a.getAmount());
 		}
+		loanAmountByTrade.forEach((tradeId, amount) -> {
+			Map<Long, BigDecimal> byLoan = allocationByTrade.computeIfAbsent(tradeId, k -> new HashMap<>());
+			if (amount.signum() > 0) {
+				byLoan.put(loanId, amount);
+			}
+			else {
+				byLoan.remove(loanId);
+			}
+		});
 		List<TradeEvent> events = trades.findByUserIdAndVoidedFalse(userId).stream()
 			.map(t -> new TradeEvent(t.getId(), t.getType(), t.getTradeDate(), t.getStockId(), t.getShares(),
 					t.getAmount(), allocationByTrade.getOrDefault(t.getId(), Map.of())))

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>確認修改借款 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<!-- 借款改小、不夠付已經用它買的股票（spec 4.8a-10、DR-051）。只負責顯示；按「確定修改」才把原本送出的欄位再送一次。 -->
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('funding')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/funding}">資金來源</a></p>
+		<h1>確認修改借款</h1>
+		<p class="alert alert-warning" th:text="${shortfallMessage}">借款金額小於已經用它買股票的金額，差 23,500 元</p>
+		<p class="muted">按「確定修改」後，下面這些交易裡這筆借款出的錢會調小，差額改算自有資金；交易的其他內容不變，也不會另外動帳戶的錢。</p>
+
+		<table class="table">
+			<thead><tr><th>日期</th><th>股票</th><th class="num">借款出的錢（原本）</th><th class="num">改成</th></tr></thead>
+			<tbody>
+			<tr th:each="c : ${cuts}">
+				<td th:text="${c.date()}">2026-09-28</td>
+				<td th:text="${c.stockLabel()}">0050 元大台灣50</td>
+				<td class="num" th:text="${#numbers.formatInteger(c.from(), 1, 'COMMA')}">73,500</td>
+				<td class="num" th:text="${#numbers.formatInteger(c.to(), 1, 'COMMA')}">50,000</td>
+			</tr>
+			</tbody>
+		</table>
+
+		<form class="form-card" method="post" th:action="@{/funding/{id}/edit/confirm-shortfall(id=${loanId})}">
+			<input type="hidden" name="name" th:value="${form.name()}">
+			<input type="hidden" name="bank" th:value="${form.bank()}">
+			<input type="hidden" name="origin" th:value="${form.origin()}">
+			<input type="hidden" name="repaymentMethod" th:value="${form.repaymentMethod()}">
+			<input type="hidden" name="pledge" value="true" th:if="${form.type() != null and form.type().name() == 'PLEDGE'}">
+			<input type="hidden" name="type" th:value="${form.type()}" th:if="${form.repaymentMethod() == null}">
+			<input type="hidden" name="originalAmount" th:value="${form.originalAmount()}">
+			<input type="hidden" name="startDate" th:value="${form.startDate()}">
+			<input type="hidden" name="startPrincipal" th:value="${form.startPrincipal()}">
+			<input type="hidden" name="annualRatePercent" th:value="${form.annualRatePercent()}">
+			<input type="hidden" name="monthlyPayment" th:value="${form.monthlyPayment()}">
+			<input type="hidden" name="payDay" th:value="${form.payDay()}">
+			<input type="hidden" name="remainingPeriods" th:value="${form.remainingPeriods()}">
+			<input type="hidden" name="firstPeriod" th:value="${form.firstPeriod()}">
+			<input type="hidden" name="dueDate" th:value="${form.dueDate()}">
+			<input type="hidden" name="disburseAccountId" th:value="${form.disburseAccountId()}">
+			<input type="hidden" name="payAccountId" th:value="${form.payAccountId()}">
+			<input type="hidden" name="fee" th:value="${form.fee()}">
+			<div class="form-actions">
+				<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">確定修改</button>
+				<a class="btn btn-link" th:href="@{/funding/{id}/edit(id=${loanId})}">取消</a>
+			</div>
+		</form>
+	</main>
+</div>
+</body>
+</html>

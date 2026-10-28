@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
-import java.util.Objects;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -18,8 +17,7 @@ import jakarta.persistence.Table;
 /**
  * 一筆借款（設計文件 2026-10-22-funding-sources、spec 6 Loan）。這是「設定」：修改直接更新、不寫修改紀錄。
  * 撥款、還本、利息是現金異動；剩餘本金、是否還清都由事件推算，不存在這裡。
- * 類型與方式建立後不能改；起點（起算日、起算本金、剩餘期數、第一期）只有既有借款、還沒有任何異動時能改（設計文件 11-5）；
- * 扣款日與帳戶改了從當月起生效（postingFrom）。
+ * 每個欄位都能改（DR-051），只有 origin（新撥款或既有借款）不能改；改了之後由 LoanService 依新合約重新對照撥款與每期紀錄。
  */
 @Entity
 @Table(name = "loan")
@@ -36,11 +34,11 @@ public class Loan {
 	private String name;
 
 	@Enumerated(EnumType.STRING)
-	@Column(name = "loan_type", nullable = false, length = 10, updatable = false)
+	@Column(name = "loan_type", nullable = false, length = 10)
 	private LoanType type;
 
 	@Enumerated(EnumType.STRING)
-	@Column(name = "repayment_method", nullable = false, length = 20, updatable = false)
+	@Column(name = "repayment_method", nullable = false, length = 20)
 	private RepaymentMethod repaymentMethod;
 
 	@Column(nullable = false, length = 50)
@@ -59,7 +57,7 @@ public class Loan {
 	@Column(name = "start_principal", nullable = false, precision = 19, scale = 4)
 	private BigDecimal startPrincipal;
 
-	@Column(name = "disburse_account_id", updatable = false)
+	@Column(name = "disburse_account_id")
 	private Long disburseAccountId;
 
 	@Column(name = "pay_account_id", nullable = false)
@@ -130,14 +128,11 @@ public class Loan {
 	}
 
 	/**
-	 * 修改基本資料。扣款日或扣款帳戶改了，記帳起點移到 currentMonth：之前沒記到的期數不用新設定補記（同 DR-037）。
+	 * 修改基本資料。扣款日、扣款帳戶改了也從起算月份起重新對照（DR-051 取代 DR-037 的「從當月起生效」），
+	 * 所以這裡不動記帳起點。
 	 */
 	public void change(String name, String bank, BigDecimal originalAmount, Long payAccountId, int payDay,
-			LocalDate dueDate, YearMonth currentMonth) {
-		boolean scheduleChanged = this.payDay != payDay || !Objects.equals(this.payAccountId, payAccountId);
-		if (scheduleChanged && currentMonth.atDay(1).isAfter(postingFrom)) {
-			this.postingFrom = currentMonth.atDay(1);
-		}
+			LocalDate dueDate) {
 		this.name = CashAccount.normalizeName(name);
 		this.bank = CashAccount.normalizeName(bank);
 		this.originalAmount = originalAmount;
@@ -146,16 +141,24 @@ public class Loan {
 		this.dueDate = repaymentMethod == RepaymentMethod.MONTHLY_FIXED ? null : dueDate;
 	}
 
-	/** 改起點：只有既有借款、還沒有任何異動時呼叫（由 LoanService 檢查）。記帳起點跟著移到新的起算月份。 */
-	public void changeStart(LocalDate startDate, BigDecimal startPrincipal, Integer remainingPeriods,
-			YearMonth firstPeriod) {
-		if (origin != LoanOrigin.EXISTING) {
-			throw new IllegalStateException("新撥款的起點由撥款異動決定");
-		}
+	/**
+	 * 改類型、還款方式與起點（DR-051）；各種限制由 LoanService 檢查。origin 不能改。
+	 * 記帳起點從新的起算月份起重新對照。每月固定還款以外的方式不用期數與第一期；
+	 * 到期日要由呼叫端接著用 change(...) 設定（改成到期一次還本金時資料庫要求有到期日）。
+	 */
+	public void reviseContract(LoanType type, RepaymentMethod method, LocalDate startDate, BigDecimal startPrincipal,
+			Long disburseAccountId, Integer remainingPeriods, YearMonth firstPeriod) {
+		boolean monthly = method == RepaymentMethod.MONTHLY_FIXED;
+		this.type = type;
+		this.repaymentMethod = method;
 		this.startDate = startDate;
 		this.startPrincipal = startPrincipal;
-		this.remainingPeriods = type == LoanType.CREDIT ? remainingPeriods : null;
-		this.firstPeriod = type == LoanType.CREDIT && firstPeriod != null ? firstPeriod.atDay(1) : null;
+		this.disburseAccountId = origin == LoanOrigin.NEW ? disburseAccountId : null;
+		this.remainingPeriods = monthly ? remainingPeriods : null;
+		this.firstPeriod = monthly && firstPeriod != null ? firstPeriod.atDay(1) : null;
+		if (monthly) {
+			this.dueDate = null;
+		}
 		this.postingFrom = YearMonth.from(startDate).atDay(1);
 	}
 
