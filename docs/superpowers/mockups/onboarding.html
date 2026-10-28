@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>樣稿：第一次使用引導</title>
+	<!-- 樣稿：只為了確認欄位與畫面，不是正式程式；樣式沿用系統的 app.css -->
+	<style>/* 內嵌 app.css（樣稿用，本機檔案讀不到相對路徑的 CSS） */
+/* 介面 A「穩健明亮」（DR-012）：淺色、左側選單、表格為主 */
+:root {
+	--bg: #f5f7fa;
+	--surface: #ffffff;
+	--border: #e3e8ef;
+	--text: #1f2933;
+	--muted: #6b7785;
+	--primary: #1f5fbf;
+	--primary-dark: #174a96;
+	--error-bg: #fdecec;
+	--error-text: #b42318;
+	--success-text: #0b7a47;
+	--success-bg: #e7f6ee;
+	--info-bg: #eaf2fd;
+	--info-text: #174a96;
+	--warning-bg: #fff4e0;
+	--warning-text: #8a4b00;
+	--radius: 8px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+	font-size: 15px;
+	line-height: 1.6;
+}
+
+h1 { font-size: 22px; margin: 0 0 8px; }
+.muted { color: var(--muted); }
+
+/* ---------- 版面 ---------- */
+.app { display: flex; min-height: 100vh; }
+
+.sidebar {
+	width: 220px;
+	flex-shrink: 0;
+	background: var(--surface);
+	border-right: 1px solid var(--border);
+	display: flex;
+	flex-direction: column;
+	padding: 20px 12px;
+}
+.sidebar .brand { font-weight: 700; font-size: 17px; padding: 0 12px 16px; }
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+	display: block;
+	padding: 8px 12px;
+	border-radius: var(--radius);
+	color: var(--text);
+	text-decoration: none;
+}
+a.nav-item:hover { background: var(--bg); }
+.nav-item.active { background: var(--info-bg); color: var(--primary); font-weight: 600; }
+.nav-item.disabled { color: #b0b8c3; cursor: default; }
+.sidebar-footer {
+	margin-top: auto;
+	border-top: 1px solid var(--border);
+	padding: 12px 12px 0;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+.sidebar-footer .user { display: flex; flex-direction: column; line-height: 1.3; }
+
+.content { flex: 1; padding: 28px 32px; min-width: 0; }
+
+/* ---------- 按鈕與表單 ---------- */
+.btn {
+	border: 1px solid transparent;
+	border-radius: var(--radius);
+	padding: 9px 16px;
+	font: inherit;
+	cursor: pointer;
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-dark); }
+.btn-block { width: 100%; }
+.btn:disabled { opacity: 0.6; cursor: progress; }
+.btn-link { background: none; color: var(--muted); padding: 4px 0; }
+.btn-link:hover { color: var(--primary); }
+
+label { display: block; font-weight: 600; margin: 14px 0 6px; }
+input[type="text"], input[type="password"] {
+	width: 100%;
+	padding: 9px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	font: inherit;
+	background: var(--surface);
+}
+input:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+label.checkbox { font-weight: 400; display: flex; gap: 8px; align-items: center; margin: 14px 0 20px; }
+
+.alert { padding: 10px 12px; border-radius: var(--radius); margin: 12px 0 0; }
+.alert-error { background: var(--error-bg); color: var(--error-text); }
+.alert-info { background: var(--info-bg); color: var(--info-text); }
+.alert-warning { background: var(--warning-bg); color: var(--warning-text); }
+
+/* ---------- 登入頁 ---------- */
+.login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
+.login-card {
+	width: 100%;
+	max-width: 380px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	padding: 32px 28px;
+	box-shadow: 0 4px 16px rgba(31, 41, 51, 0.06);
+}
+.login-card .brand { font-size: 22px; margin: 0; }
+
+/* 手機：側欄改成上方橫列 */
+@media (max-width: 720px) {
+	.app { flex-direction: column; }
+	.sidebar { width: auto; border-right: none; border-bottom: 1px solid var(--border); }
+	.sidebar nav { flex-direction: row; flex-wrap: wrap; }
+	.sidebar-footer { margin-top: 12px; }
+	.content { padding: 20px 16px; }
+	/* 標題旁的按鈕換到標題下方，不要擠成一直排 */
+	.page-header { flex-wrap: wrap; align-items: flex-start; }
+	.header-actions { justify-content: flex-start; }
+	.two-column { grid-template-columns: 1fr; }
+}
+
+/* ---------- 設定頁：表格、表單 ---------- */
+.breadcrumb { margin: 0 0 8px; color: var(--muted); font-size: 0.9em; }
+.breadcrumb a { color: var(--muted); }
+.page-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.page-header .btn { flex: none; white-space: nowrap; }
+.header-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.content .panel h2:first-child { margin-top: 0; }
+.panel + .panel { margin-top: 16px; }
+.voided-row td { color: var(--muted); }
+.inline-form-compact { display: inline-flex; margin-left: 8px; }
+.two-column { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin: 16px 0; }
+.two-column .panel + .panel { margin-top: 0; }
+.total-row td { font-weight: 600; }
+.allocation-grid { display: grid; grid-template-columns: 1fr 160px; gap: 6px 12px; align-items: center; margin: 4px 0 8px; }
+a.btn { display: inline-block; text-decoration: none; }
+
+.table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.table th, .table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+.table th { color: var(--muted); font-weight: 600; font-size: 0.9em; }
+.table tbody tr:last-child td { border-bottom: none; }
+.table .actions { text-align: right; }
+
+.settings-list { list-style: none; padding: 0; margin: 16px 0; display: grid; gap: 12px; max-width: 560px; }
+.settings-list a { display: block; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); text-decoration: none; }
+.settings-list a:hover { border-color: var(--primary); }
+
+.form-card { max-width: 480px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 20px 20px; }
+select { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; background: var(--surface); }
+input.field-invalid, select.field-invalid { border-color: var(--error-text); }
+.field-error { color: var(--error-text); margin: 6px 0 0; font-size: 0.9em; }
+.form-actions { display: flex; align-items: center; gap: 16px; margin-top: 20px; }
+
+/* ---------- 費率頁 ---------- */
+.content h2 { margin: 28px 0 4px; font-size: 1.2em; }
+.content h3 { margin: 24px 0 8px; font-size: 1.05em; }
+.hint { margin: 6px 0 0; font-size: 0.85em; }
+details summary { cursor: pointer; color: var(--primary); }
+.history { margin: 8px 0 0; padding-left: 18px; line-height: 1.8; }
+.badge { display: inline-block; padding: 0 8px; border-radius: 999px; background: var(--info-bg); color: var(--info-text); font-size: 0.8em; }
+input[type="date"], input[type="number"], input[type="month"] { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; background: var(--surface); }
+
+/* ---------- 使用者管理 ---------- */
+.inline-form { display: flex; gap: 8px; align-items: center; }
+.inline-form input { width: 180px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; }
+.btn-secondary { background: var(--surface); border-color: var(--border); color: var(--text); padding: 6px 12px; }
+.btn-secondary:hover { border-color: var(--primary); color: var(--primary); }
+
+/* ---------- 總資產頁 ---------- */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 16px 0; }
+.stat-card, .account-card, .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
+.stat-card { display: flex; flex-direction: column; gap: 6px; }
+.stat-label { color: var(--muted); font-size: 0.9em; }
+.stat-value { font-size: 1.6em; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat-note { font-size: 0.85em; color: var(--muted); }
+.panel { margin: 16px 0; }
+.account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin: 16px 0; }
+.account-card { display: flex; flex-direction: column; gap: 8px; }
+.account-head { display: flex; justify-content: space-between; gap: 8px; }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.negative { color: var(--error-text); }
+.positive { color: var(--success-text); }
+.voided { color: var(--muted); text-decoration: line-through; }
+.month-nav { display: flex; gap: 16px; align-items: center; margin: 12px 0; }
+.search-form { display: flex; gap: 8px; align-items: center; margin: 12px 0; }
+.search-form input { width: 260px; max-width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; }
+.label-text { font-weight: 600; margin-right: 8px; }
+
+/* ---------- 固定收支頁 ---------- */
+.unfilled-row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.unfilled-row:last-child { border-bottom: none; }
+.unfilled-row .inline-form input { width: 140px; }
+.table-scroll { overflow-x: auto; }
+/* 窄畫面時表格左右捲動，不要把名稱、日期擠成好幾行 */
+.table-scroll .table { min-width: 720px; }
+.table-scroll .table th, .table-scroll .table td { white-space: nowrap; }
+
+/* ---------- 資金來源頁 ---------- */
+.account-card-header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.loan-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 12px 0; }
+.loan-facts dt { color: var(--muted); }
+.loan-facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.card-actions { margin: 8px 0 0; }
+.card-subtitle { margin: 12px 0 0; font-size: 0.9em; }
+.card-details { margin: 8px 0 0; }
+.purchase-table { margin-top: 4px; font-size: 0.9em; }
+.purchase-table th, .purchase-table td { padding: 6px 8px; white-space: nowrap; }
+.card-details summary { cursor: pointer; color: var(--muted); }
+.card-details .inline-form { flex-wrap: wrap; margin-top: 8px; }
+.card-details .inline-form input { width: 140px; }
+.maintenance-ok { color: var(--success-text); }
+/* 借款值不值得：綠＝賺贏利息、紅＝還沒賺贏、灰＝還沒拿去投資 */
+.worth { margin: 12px 0 0; padding: 8px 12px; border-radius: var(--radius); background: var(--bg); }
+.worth .loan-facts { margin: 4px 0 0; }
+.worth-verdict { margin: 0; font-weight: 600; color: var(--muted); }
+.worth-beat { background: var(--success-bg); }
+.worth-beat .worth-verdict, .worth-beat .worth-net { color: var(--success-text); }
+.worth-behind { background: var(--error-bg); }
+.worth-behind .worth-verdict, .worth-behind .worth-net { color: var(--error-text); }
+.maintenance-warn { color: var(--warning-text); font-weight: 600; }
+.maintenance-call { color: var(--error-text); font-weight: 600; }
+	</style>
+	<style>
+		.mock-note { background: var(--warning-bg); color: var(--warning-text); padding: 8px 12px; border-radius: var(--radius); margin: 0 0 16px; }
+		.wizard { max-width: 560px; }
+		.stepper { display: flex; gap: 4px; list-style: none; padding: 0; margin: 0 0 20px; flex-wrap: wrap; }
+		.stepper li { flex: 1; min-width: 80px; text-align: center; font-size: 13px; padding: 6px 4px; border-bottom: 3px solid var(--border); color: var(--muted); }
+		.stepper li.done { border-color: var(--success-text); color: var(--success-text); }
+		.stepper li.now { border-color: var(--primary); color: var(--primary); font-weight: 700; }
+		.stepper li.skipped { text-decoration: line-through; }
+		.screen { display: none; }
+		.screen.show { display: block; }
+		.choice { display: grid; gap: 8px; margin: 12px 0; }
+		.choice button { text-align: left; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); cursor: pointer; font: inherit; }
+		.choice button:hover { border-color: var(--primary); background: var(--info-bg); }
+		.choice small { display: block; color: var(--muted); }
+		.added { margin: 0 0 16px; padding: 10px 12px; background: var(--success-bg); color: var(--success-text); border-radius: var(--radius); }
+		.added ul { margin: 4px 0 0; padding-left: 20px; }
+		.later { margin-top: 16px; font-size: 14px; }
+		.back { margin: -8px 0 8px; }
+		.method-group { display: grid; gap: 8px; margin: 4px 0 12px; }
+		.method { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; font-weight: 400; margin: 0; }
+		.method input { margin-top: 4px; }
+		.method strong { display: block; }
+		.method small { color: var(--muted); }
+		.method:has(input:checked) { border-color: var(--primary); background: var(--info-bg); }
+		.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+		.collateral-table input[type=number] { width: 100px; padding: 4px 6px; margin: 0; }
+		.summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+		.step-actions { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+		.btn-secondary { background: var(--surface); border-color: var(--border); color: var(--text); }
+		dialog { border: 1px solid var(--border); border-radius: 12px; padding: 24px; max-width: 460px; width: calc(100% - 32px); }
+		dialog::backdrop { background: rgba(31, 41, 51, 0.4); }
+		dialog h2 { margin: 0 0 8px; font-size: 18px; }
+		.confirm-list { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 12px 0 20px; }
+		.confirm-list dt { color: var(--muted); }
+		.confirm-list dd { margin: 0; font-weight: 600; }
+		.confirm-list dd.empty { color: var(--muted); font-weight: 400; }
+		.dialog-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+	</style>
+</head>
+<body>
+<div class="app">
+	<aside class="sidebar">
+		<div class="brand">台股資產帳本</div>
+		<nav>
+			<span class="nav-item active">總覽</span>
+			<span class="nav-item">總資產</span>
+			<span class="nav-item">股票</span>
+			<span class="nav-item">資金來源</span>
+			<span class="nav-item">固定收支</span>
+			<span class="nav-item">設定</span>
+		</nav>
+	</aside>
+	<main class="content">
+		<p class="mock-note">樣稿：第一次登入（還沒有任何資料）時出現的引導。「儲存」會先列出填的資料讓你確認；「下一步」不會儲存，打到一半的字回來還在；已儲存的可以按「修改」。樣稿不會真的存，重新整理就會清空。</p>
+
+		<div class="wizard">
+			<ol class="stepper" id="stepper">
+				<li data-s="1">1 帳戶</li>
+				<li data-s="2">2 借款</li>
+				<li data-s="3">3 股票</li>
+				<li data-s="4">4 擔保</li>
+				<li data-s="5">5 完成</li>
+			</ol>
+			<p class="back" id="backLink" hidden><button type="button" class="btn btn-link" onclick="back()">← 上一步</button></p>
+
+			<!-- 0 歡迎 -->
+			<section class="screen show" data-screen="welcome">
+				<h1 tabindex="-1">歡迎，我們一步一步把資料放進來</h1>
+				<p class="muted">照這個順序記：先建帳戶，再記借款，再記股票，最後設定質押的擔保股票。每一筆都要按「儲存」並確認才會記下來；「下一步」只是換頁。每一步都可以略過，中途離開下次會從這裡接著做。</p>
+				<div class="form-actions">
+					<button type="button" class="btn btn-primary" onclick="go('acct')">開始</button>
+					<button type="button" class="btn btn-link" onclick="go('done')">我自己來，不用引導</button>
+				</div>
+			</section>
+
+			<!-- 1 帳戶 -->
+			<section class="screen" data-screen="acct">
+				<h1 tabindex="-1">你的錢放在哪些帳戶？</h1>
+				<p class="muted">銀行帳戶、證券交割戶各建一個。借款要撥進帳戶，買股票要從交割戶扣錢，所以先建帳戶。</p>
+				<div class="added" id="acctList" hidden><strong>已儲存的帳戶</strong><ul></ul></div>
+				<form class="form-card" id="acctForm" onsubmit="return false" data-what="帳戶">
+					<label>名稱</label>
+					<input id="acctName" type="text" placeholder="例如 玉山交割戶" data-label="名稱" data-required>
+					<label>類型</label>
+					<select id="acctType" data-label="類型"><option value="交割戶">證券交割戶</option><option value="銀行">銀行帳戶</option></select>
+					<label>銀行或券商</label>
+					<input type="text" placeholder="例如 玉山證券" data-label="銀行或券商" data-required>
+					<div class="two">
+						<div><label>現在的餘額</label><input type="text" inputmode="numeric" placeholder="例如 50000" data-label="現在的餘額"></div>
+						<div><label>這是哪一天的餘額</label><input type="date" value="2026-10-25" data-label="餘額日期" data-default></div>
+					</div>
+					<p class="hint muted">填存摺或 App 上現在看到的餘額就好。這天以前的借款和買股票，不會再從這個餘額扣一次。</p>
+					<div class="form-actions">
+						<button type="button" class="btn btn-secondary" onclick="askSave('acctForm', readAcct)">儲存這個帳戶</button>
+					</div>
+				</form>
+				<p class="hint muted" id="acctNeed">至少要儲存一個證券交割戶，才能往下走。</p>
+				<div class="step-actions">
+					<button type="button" class="btn btn-link" onclick="leave('acctForm')">先離開，下次再繼續</button>
+					<button type="button" class="btn btn-primary" id="acctNext" onclick="next('acctForm', 'loanAsk')" disabled>下一步：借款 →</button>
+				</div>
+			</section>
+
+			<!-- 2 借款：先問有沒有 -->
+			<section class="screen" data-screen="loanAsk">
+				<h1 tabindex="-1">你有拿去投資的借款嗎？</h1>
+				<p class="muted">信貸、股票質押都算。沒有的話直接記股票。</p>
+				<div class="choice">
+					<button type="button" onclick="go('loan')"><strong>有，我要記借款</strong><small>一筆一筆記</small></button>
+					<button type="button" onclick="skip(2); go('stock')"><strong>沒有，略過</strong><small>之後想記可以到「資金來源」頁</small></button>
+				</div>
+			</section>
+
+			<!-- 2 借款 -->
+			<section class="screen" data-screen="loan">
+				<h1 tabindex="-1">記你的借款</h1>
+				<p class="muted">一筆一筆記：填好一筆按「儲存這筆借款」，確認後表單會清空，可以再記下一筆。全部記完按「下一步」。</p>
+				<div class="added" id="loanList" hidden><strong>已儲存的借款</strong><ul></ul></div>
+				<form class="form-card" id="loanForm" onsubmit="return false" data-what="借款">
+					<label>名稱</label>
+					<input id="loanName" type="text" placeholder="例如 玉山質押" data-label="名稱" data-required>
+					<label>銀行</label>
+					<input type="text" placeholder="例如 玉山銀行" data-label="銀行" data-required>
+					<p class="label-text">怎麼還？</p>
+					<div class="method-group" data-label="還款方式">
+						<label class="method"><input type="radio" name="m" value="MONTHLY" checked onchange="showMethod()"><span><strong>每月固定還款</strong><small>每月扣一筆，裡面有本金和利息（一般信貸）</small></span></label>
+						<label class="method"><input type="radio" name="m" value="BULLET" onchange="showMethod()"><span><strong>到期一次還本金＋利息</strong><small>平常不用繳，到期一次付清（例如股票質押）</small></span></label>
+						<label class="method"><input type="radio" name="m" value="INTEREST_ONLY" onchange="showMethod()"><span><strong>每月繳息、到期還本</strong><small>每月只繳利息，本金到期才還</small></span></label>
+					</div>
+					<label class="checkbox-line" style="font-weight:400"><input type="checkbox" id="isPledge" data-label="股票質押"> 這是股票質押（擔保股票等記完股票再設定）</label>
+					<div class="two">
+						<div><label>撥款日</label><input id="loanStart" type="date" value="2026-07-28" data-label="撥款日" data-default oninput="checkLoan()"></div>
+						<div><label>借款金額</label><input type="text" inputmode="numeric" placeholder="100000" data-label="借款金額" data-required></div>
+					</div>
+					<label>年利率（%）</label>
+					<input type="text" inputmode="decimal" placeholder="4" data-label="年利率（%）" data-required>
+					<div data-for="MONTHLY">
+						<div class="two">
+							<div><label>每月扣款金額（照銀行）</label><input type="text" inputmode="numeric" placeholder="5133" data-label="每月扣款金額" data-required></div>
+							<div><label>每月扣款日</label><input type="number" min="1" max="31" placeholder="1" data-label="每月扣款日" data-required></div>
+						</div>
+						<label>總期數</label><input type="number" placeholder="84" data-label="總期數" data-required>
+					</div>
+					<div data-for="INTEREST_ONLY"><label>每月繳息日</label><input type="number" min="1" max="31" data-label="每月繳息日" data-required></div>
+					<div data-for="BULLET INTEREST_ONLY"><label>到期日</label><input id="loanDue" type="date" data-label="到期日" data-required oninput="checkLoan()"><p class="field-error" id="dueWarn" hidden></p></div>
+					<label>往來帳戶</label>
+					<select class="acctSelect" data-label="往來帳戶" data-required></select>
+					<details><summary class="muted">開辦費、手續費（選填）</summary><input type="text" inputmode="numeric" placeholder="例如 3000" data-label="開辦費、手續費"></details>
+					<div class="form-actions"><button type="button" class="btn btn-secondary" onclick="askSave('loanForm', readLoan)">儲存這筆借款</button></div>
+				</form>
+				<div class="step-actions">
+					<button type="button" class="btn btn-link" onclick="leave('loanForm')">先離開，下次再繼續</button>
+					<button type="button" class="btn btn-primary" onclick="next('loanForm', 'stock')">借款記完了，下一步：股票 →</button>
+				</div>
+			</section>
+
+			<!-- 3 股票 -->
+			<section class="screen" data-screen="stock">
+				<h1 tabindex="-1">記你的股票</h1>
+				<p class="muted">一檔一檔記。同一檔分好幾次買、還記得日期和價格，就一次一次記；不記得就用「目前持有」一次填總數，價格填大概的平均成本也可以。</p>
+				<div class="added" id="stockList" hidden><strong>已儲存的股票</strong><ul></ul></div>
+				<form class="form-card" id="stockForm" onsubmit="return false" data-what="股票">
+					<label>股票代號</label>
+					<input id="stockCode" type="text" placeholder="例如 0050" data-label="股票代號" data-required>
+					<p class="label-text">怎麼記？</p>
+					<div class="method-group" data-label="記法">
+						<label class="method"><input type="radio" name="k" value="BUY" checked onchange="showKind()"><span><strong>一次買進</strong><small>記得哪天、用多少錢買的</small></span></label>
+						<label class="method"><input type="radio" name="k" value="OPENING" onchange="showKind()"><span><strong>目前持有（不記得每次怎麼買）</strong><small>填總股數和平均成本，一檔只能有一筆</small></span></label>
+					</div>
+					<div class="two">
+						<div><label id="dateLabel">買進日期</label><input id="stockDate" type="date" value="2026-03-12" data-label="日期" data-required data-default></div>
+						<div><label>股數</label><input id="stockShares" type="number" placeholder="1000" data-label="股數" data-required></div>
+					</div>
+					<label id="priceLabel">成交價</label>
+					<input id="stockPrice" type="text" inputmode="decimal" placeholder="例如 73.5" data-label="價格" data-required>
+					<p class="hint muted" data-k="OPENING">券商 App 的庫存頁有「成本均價」；查不到就填今天的收盤價，報酬率會從今天開始算。</p>
+					<div data-k="BUY">
+						<label>從哪個交割戶扣款</label>
+						<select class="acctSelect" data-label="交割戶" data-required></select>
+						<p class="hint muted">手續費系統會自動算，和對帳單不同再到股票頁修改。</p>
+					</div>
+					<label>這筆錢從哪裡來？</label>
+					<select id="source" data-label="資金來源"><option>自己的錢</option></select>
+					<p class="hint muted">用借款買的就選那筆借款；一部分借款、一部分自己的錢，之後可以在股票頁拆。</p>
+					<div class="form-actions"><button type="button" class="btn btn-secondary" onclick="askSave('stockForm', readStock)">儲存這筆股票</button></div>
+				</form>
+				<div class="step-actions">
+					<button type="button" class="btn btn-link" onclick="leave('stockForm')">先離開，下次再繼續</button>
+					<button type="button" class="btn btn-primary" onclick="next('stockForm', afterStocks)">股票記完了，下一步 →</button>
+				</div>
+			</section>
+
+			<!-- 4 擔保 -->
+			<section class="screen" data-screen="collat">
+				<h1 tabindex="-1" id="collatTitle">「玉山質押」押了哪些股票？</h1>
+				<p class="muted">勾選拿去質押的持股，只押一部分就把股數改小。系統用這些股票的收盤價算維持率。</p>
+				<div class="added" id="collatSaved" hidden><strong>已儲存</strong><ul></ul></div>
+				<form class="form-card" id="collatForm" onsubmit="return false" data-what="擔保股票">
+					<table class="table collateral-table" id="collatTable">
+						<thead><tr><th></th><th>股票</th><th class="num">擔保股數</th></tr></thead>
+						<tbody></tbody>
+					</table>
+					<div class="two">
+						<div><label>維持率提醒線（%）</label><input type="number" value="150" data-label="提醒線（%）" data-default></div>
+						<div><label>追繳線（%）</label><input type="number" value="130" data-label="追繳線（%）" data-default></div>
+					</div>
+					<p class="hint muted">不知道就用預設值，之後可以在資金來源頁改。</p>
+					<div class="form-actions"><button type="button" class="btn btn-secondary" onclick="askSave('collatForm', readCollat)">儲存擔保股票</button></div>
+				</form>
+				<div class="step-actions">
+					<button type="button" class="btn btn-link" onclick="skip(4); go('done')">之後再設定</button>
+					<button type="button" class="btn btn-primary" onclick="next('collatForm', 'done')">下一步：完成 →</button>
+				</div>
+			</section>
+
+			<!-- 5 完成 -->
+			<section class="screen" data-screen="done">
+				<h1 tabindex="-1">完成了</h1>
+				<p class="muted">之後的每月扣款、利息會自動記帳；股價每天晚上更新。要補資料或修改，到各頁面就可以。</p>
+				<div class="summary">
+					<div class="stat-card"><div class="stat-label">帳戶</div><div class="stat-value" id="sumAcct">0</div></div>
+					<div class="stat-card"><div class="stat-label">借款</div><div class="stat-value" id="sumLoan">0</div></div>
+					<div class="stat-card"><div class="stat-label">股票</div><div class="stat-value" id="sumStock">0</div></div>
+				</div>
+				<div class="form-actions"><button type="button" class="btn btn-primary" onclick="location.reload()">到總覽看看（樣稿：重新開始）</button></div>
+			</section>
+		</div>
+	</main>
+</div>
+
+<!-- 儲存前的確認視窗；也用在「下一步」時提醒還有沒儲存的資料 -->
+<dialog id="confirmDialog">
+	<h2 id="confirmTitle">確認要儲存這筆資料嗎？</h2>
+	<p class="muted" id="confirmText">請檢查下面的內容是否正確。</p>
+	<dl class="confirm-list" id="confirmList"></dl>
+	<div class="dialog-actions" id="confirmActions"></div>
+</dialog>
+
+<style>
+	.added li { display: flex; align-items: center; gap: 8px; }
+	.added li .btn-link { padding: 0 4px; font-size: 14px; color: var(--primary); }
+	.added li.editing { font-weight: 700; }
+	.confirm-warn { background: var(--error-bg); color: var(--error-text); padding: 8px 12px; border-radius: var(--radius); margin: 8px 0 0; }
+	.edit-note { background: var(--info-bg); color: var(--info-text); padding: 8px 12px; border-radius: var(--radius); margin: 0 0 12px; }
+</style>
+<script>
+	// 樣稿用：只切換畫面、把填的資料列在「已儲存」，不會真的存
+	const order = { welcome: 0, acct: 1, loanAsk: 2, loan: 2, stock: 3, collat: 4, done: 5 };
+	const skipped = new Set();
+	const $ = id => document.getElementById(id);
+	const today = new Date().toLocaleDateString('sv-SE');
+
+	// 每個表單：已儲存的資料、正在修改第幾筆、修改前沒存的草稿
+	const forms = {
+		acctForm: { list: 'acctList', items: [], editing: null, draft: null,
+			label: s => s.name + '（' + s.type + '）', after: refreshAccounts },
+		loanForm: { list: 'loanList', items: [], editing: null, draft: null,
+			label: s => s.name + (s.pledge ? '（股票質押）' : ''), after: refreshSources, check: checkLoan },
+		stockForm: { list: 'stockList', items: [], editing: null, draft: null,
+			label: s => s.code + '　' + Number(s.shares).toLocaleString() + ' 股' + (s.price ? '　' + s.price + ' 元' : '') },
+		collatForm: { list: 'collatSaved', items: [], editing: null, draft: null, single: true,
+			label: s => s.picks.length ? s.picks.join('、') : '沒有勾選擔保股票' }
+	};
+
+	// 在輸入框裡按 Enter（含注音輸入法選字時的按鍵）不會送出、不會換頁；只有按按鈕才會儲存或下一步
+	document.addEventListener('keydown', e => {
+		if (e.key === 'Enter' && e.target.matches('input')) e.preventDefault();
+	});
+
+	// 走過的畫面依序記下來，「← 上一步」回到前一個畫面。表單裡打到一半的字會留著，不用儲存
+	const trail = [];
+	let current = 'welcome';
+	function back() {
+		if (trail.length) go(trail.pop(), false);
+	}
+	function go(name, remember = true) {
+		if (remember && name !== current) trail.push(current);
+		current = name;
+		$('backLink').hidden = name === 'welcome';
+		document.querySelectorAll('.screen').forEach(s => s.classList.toggle('show', s.dataset.screen === name));
+		const n = order[name];
+		document.querySelectorAll('#stepper li').forEach(li => {
+			const s = +li.dataset.s;
+			li.className = s === n ? 'now' : (s < n ? (skipped.has(s) ? 'done skipped' : 'done') : '');
+		});
+		if (name === 'done') {
+			$('sumAcct').textContent = forms.acctForm.items.length;
+			$('sumLoan').textContent = forms.loanForm.items.length;
+			$('sumStock').textContent = forms.stockForm.items.length;
+		}
+		// 換頁後把焦點放在標題，不留在按鈕上，按空白鍵不會誤按到下一頁的按鈕
+		window.scrollTo(0, 0);
+		document.querySelector('.screen.show h1').focus({ preventScroll: true });
+	}
+	function skip(s) { skipped.add(s); }
+	// 下一步只換頁、不儲存，也不跳視窗；沒存的內容留在表單裡，回來還在
+	function next(formId, target) {
+		typeof target === 'function' ? target() : go(target);
+	}
+	function leave(formId) { go('done'); }
+
+	// ---------- 表單內容的快照（儲存、修改、草稿都用） ----------
+	function controls(form) {
+		return [...form.querySelectorAll('input, select')].filter(el => !el.closest('#collatTable'));
+	}
+	function snap(form) {
+		return controls(form).map(el => el.type === 'radio' || el.type === 'checkbox' ? el.checked : el.value);
+	}
+	function restore(form, s) {
+		controls(form).forEach((el, i) => {
+			if (el.type === 'radio' || el.type === 'checkbox') el.checked = s[i]; else el.value = s[i];
+		});
+		showMethod(); showKind(); checkLoan();
+	}
+	function clearForm(form) {
+		controls(form).forEach(el => {
+			if (el.hasAttribute('data-default')) el.value = el.defaultValue;
+			else if (el.type === 'radio') el.checked = el.defaultChecked;
+			else if (el.type === 'checkbox') el.checked = false;
+			else if (el.tagName !== 'SELECT') el.value = '';
+		});
+		showMethod(); showKind(); checkLoan();
+	}
+
+	// 把表單裡看得到的欄位整理成「欄位：內容」
+	function fields(form) {
+		const rows = [];
+		form.querySelectorAll('[data-label]').forEach(el => {
+			if (el.closest('[hidden]')) return;
+			let v;
+			if (el.classList.contains('method-group')) v = el.querySelector('input:checked').closest('label').querySelector('strong').textContent;
+			else if (el.type === 'checkbox') v = el.checked ? '是' : '否';
+			else if (el.tagName === 'SELECT') v = el.selectedOptions[0] ? el.selectedOptions[0].text : '';
+			else v = el.value;
+			rows.push([el.dataset.label, v]);
+		});
+		if (form.id === 'collatForm') {
+			collatPicks().reverse().forEach(p => rows.unshift(['擔保股票', p]));
+		}
+		return rows;
+	}
+
+	// ---------- 已儲存清單：每一筆旁邊有「修改」 ----------
+	function render(formId) {
+		const f = forms[formId];
+		const box = $(f.list);
+		box.hidden = f.items.length === 0;
+		box.querySelector('ul').innerHTML = f.items.map((it, i) =>
+			'<li' + (f.editing === i ? ' class="editing"' : '') + '><span>' + f.label(it) + '</span>'
+			+ (f.editing === i ? '<span class="muted">（修改中）</span>'
+				: '<button type="button" class="btn btn-link" onclick="editItem(\'' + formId + '\',' + i + ')">修改</button>')
+			+ '</li>').join('');
+		const form = $(formId);
+		const note = form.querySelector('.edit-note');
+		const saveBtn = form.querySelector('.form-actions .btn-secondary');
+		if (!saveBtn.dataset.text) saveBtn.dataset.text = saveBtn.textContent;
+		saveBtn.textContent = f.editing === null ? saveBtn.dataset.text : '儲存修改';
+		let cancel = form.querySelector('.cancel-edit');
+		if (f.editing !== null && !cancel) {
+			cancel = document.createElement('button');
+			cancel.type = 'button'; cancel.className = 'btn btn-link cancel-edit'; cancel.textContent = '取消修改';
+			cancel.onclick = () => cancelEdit(formId);
+			saveBtn.after(cancel);
+		}
+		else if (f.editing === null && cancel) cancel.remove();
+		if (f.editing !== null && !note) {
+			const n = document.createElement('p');
+			n.className = 'edit-note'; n.textContent = '正在修改已儲存的資料；改好按「儲存修改」。剛才打到一半的內容會保留，改完自動放回來。';
+			form.prepend(n);
+		}
+		else if (f.editing === null && note) note.remove();
+	}
+	function editItem(formId, i) {
+		const f = forms[formId], form = $(formId);
+		if (f.editing === null) f.draft = snap(form); // 先收好打到一半的內容
+		f.editing = i;
+		restore(form, f.items[i].snap);
+		render(formId);
+		form.querySelector('input, select').focus();
+	}
+	function cancelEdit(formId) {
+		const f = forms[formId], form = $(formId);
+		f.editing = null;
+		f.draft ? restore(form, f.draft) : clearForm(form);
+		f.draft = null;
+		render(formId);
+	}
+
+	// ---------- 儲存：先列出所有填的資料，確認後才儲存 ----------
+	function openDialog(title, text, rows, warnings, actions) {
+		$('confirmTitle').textContent = title;
+		$('confirmText').textContent = text;
+		$('confirmList').innerHTML = rows.map(([k, v]) => '<dt>' + k + '</dt><dd' + (v ? '' : ' class="empty"') + '>' + (v || '（沒填）') + '</dd>').join('')
+			+ warnings.map(w => '<dd class="confirm-warn" style="grid-column: 1 / -1">' + w + '</dd>').join('');
+		$('confirmActions').innerHTML = '';
+		actions.forEach(([label, cls, fn]) => {
+			const b = document.createElement('button');
+			b.type = 'button'; b.className = 'btn ' + cls; b.textContent = label;
+			b.onclick = () => { $('confirmDialog').close(); if (fn) fn(); };
+			$('confirmActions').appendChild(b);
+		});
+		$('confirmDialog').showModal();
+		// 焦點放在「回去」：不小心按到空白鍵或 Enter 也不會儲存或換頁
+		$('confirmActions').firstChild.focus();
+	}
+	function askSave(formId, read) {
+		const f = forms[formId], form = $(formId);
+		const checks = f.check ? f.check() : [];
+		const editing = f.editing !== null;
+		// 必填欄位沒填、或有錯誤：列出來，不能儲存，只能回去修改（打的字都留著）
+		const missing = [...form.querySelectorAll('[data-required]')]
+			.filter(el => !el.closest('[hidden]') && String(el.value).trim() === '')
+			.map(el => el.dataset.label);
+		const errors = missing.map(m => '還沒填：' + m).concat(checks.filter(c => c.block).map(c => c.text));
+		if (errors.length) {
+			openDialog('還有欄位沒填好，不能儲存', '請回去把下面這些填好再儲存；已經打的字都還在。', [], errors, [
+				['回去修改', 'btn-primary', null]
+			]);
+			return;
+		}
+		const warnings = checks.map(c => c.text);
+		openDialog(editing ? '確認要儲存這筆修改嗎？' : '確認要儲存這筆' + form.dataset.what + '嗎？',
+			'請檢查下面的內容是否正確，沒問題再按「確認儲存」。', fields(form), warnings, [
+			['回去修改', 'btn-link', null],
+			['確認儲存', 'btn-primary', () => {
+				const item = Object.assign(read(form), { snap: snap(form) });
+				if (f.single) f.items = [item];
+				else if (editing) f.items[f.editing] = item;
+				else f.items.push(item);
+				if (editing) {
+					f.editing = null;
+					f.draft ? restore(form, f.draft) : clearForm(form);
+					f.draft = null;
+				}
+				else if (!f.single) clearForm(form);
+				render(formId);
+				if (f.after) f.after();
+			}]
+		]);
+	}
+
+	// ---------- 各表單 ----------
+	function readAcct() {
+		return { name: $('acctName').value || '（沒有名稱）', type: $('acctType').value };
+	}
+	function refreshAccounts() {
+		const items = forms.acctForm.items;
+		document.querySelectorAll('.acctSelect').forEach(s => {
+			const keep = s.value;
+			s.innerHTML = items.map(a => '<option>' + a.name + '</option>').join('');
+			if (keep) s.value = keep;
+		});
+		const hasSettlement = items.some(a => a.type === '交割戶');
+		$('acctNext').disabled = !hasSettlement; $('acctNeed').hidden = hasSettlement;
+	}
+	function showMethod() {
+		const m = document.querySelector('input[name=m]:checked').value;
+		document.querySelectorAll('[data-for]').forEach(el => el.hidden = !el.dataset.for.split(' ').includes(m));
+	}
+	// 到期日：已經過了要提醒；早於撥款日不合理
+	function checkLoan() {
+		const due = $('loanDue'), start = $('loanStart'), warn = $('dueWarn');
+		const out = []; // { text, block }：block 是錯誤（不能存），否則只是提醒
+		if (!due.closest('[hidden]') && due.value) {
+			if (start.value && due.value <= start.value) out.push({ text: '到期日 ' + due.value + ' 不能早於或等於撥款日 ' + start.value + '。', block: true });
+			else if (due.value < today) out.push({ text: '到期日 ' + due.value + ' 已經過了。如果已經還清，這筆就不用記；如果有展延，請填展延後的到期日。', block: false });
+		}
+		warn.hidden = out.length === 0;
+		warn.textContent = out.map(o => o.text).join(' ');
+		return out;
+	}
+	function readLoan() {
+		return { name: $('loanName').value || '（沒有名稱）', pledge: $('isPledge').checked };
+	}
+	function refreshSources() {
+		const keep = $('source').value;
+		$('source').innerHTML = '<option>自己的錢</option>' + forms.loanForm.items.map(l => '<option>' + l.name + '</option>').join('');
+		$('source').value = keep;
+		if (!$('source').value) $('source').selectedIndex = 0;
+	}
+	function showKind() {
+		const k = document.querySelector('input[name=k]:checked').value;
+		document.querySelectorAll('[data-k]').forEach(el => el.hidden = el.dataset.k !== k);
+		$('dateLabel').textContent = k === 'BUY' ? '買進日期' : '開始記帳的日期';
+		$('priceLabel').textContent = k === 'BUY' ? '成交價' : '平均成本（含手續費，不記得填大概的）';
+	}
+	function readStock() {
+		return { code: $('stockCode').value || '（沒有代號）', shares: $('stockShares').value || '0', price: $('stockPrice').value };
+	}
+	function collatPicks() {
+		return [...document.querySelectorAll('#collatTable tbody tr[data-code]')]
+			.filter(tr => tr.querySelector('input[type=checkbox]').checked)
+			.map(tr => tr.dataset.code + ' ' + Number(tr.querySelector('input[type=number]').value).toLocaleString() + ' 股');
+	}
+	function readCollat() {
+		return { picks: collatPicks() };
+	}
+	function afterStocks() {
+		const pledge = forms.loanForm.items.find(l => l.pledge);
+		if (!pledge) { skip(4); go('done'); return; }
+		$('collatTitle').textContent = '「' + pledge.name + '」押了哪些股票？';
+		const held = {};
+		forms.stockForm.items.forEach(s => held[s.code] = (held[s.code] || 0) + Number(s.shares));
+		$('collatTable').querySelector('tbody').innerHTML = Object.keys(held).length
+			? Object.entries(held).map(([c, n]) => '<tr data-code="' + c + '"><td><input type="checkbox" checked></td><td>' + c + '<br><small class="muted">持有 ' + n.toLocaleString() + '</small></td><td class="num"><input type="number" min="0" max="' + n + '" value="' + n + '"></td></tr>').join('')
+			: '<tr><td colspan="3" class="muted">還沒有持股，可以按「之後再設定」。</td></tr>';
+		go('collat');
+	}
+	showMethod(); showKind();
+</script>
+</body>
+</html>
