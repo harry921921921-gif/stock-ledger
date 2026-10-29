@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -103,6 +104,7 @@ public class TradeService {
 	private final RateSettingService rates;
 	private final MoneyFormatter money;
 	private final CurrentUser currentUser;
+	private final NoticeService noticeService;
 	private final Clock clock;
 	private final PortfolioReader portfolioReader;
 	private final PledgeCollateralRepository collaterals;
@@ -112,7 +114,8 @@ public class TradeService {
 			DividendRepository dividends, CashAccountRepository accounts, CashMovementRepository movements,
 			CashMovementService cashMovements, LoanRepository loans,
 			RateSettingService rates, MoneyFormatter money, CurrentUser currentUser, Clock clock, PortfolioReader portfolioReader,
-			PledgeCollateralRepository collaterals) {
+			PledgeCollateralRepository collaterals, NoticeService noticeService) {
+		this.noticeService = noticeService;
 		this.collaterals = collaterals;
 		this.portfolioReader = portfolioReader;
 		this.trades = trades;
@@ -142,12 +145,8 @@ public class TradeService {
 	@Transactional
 	public Trade create(TradeForm form) {
 		Long userId = currentUser.id();
-		if (form.type() == null) {
-			throw new TradeValidationException("請選擇交易類型");
-		}
-		Priced p = price(form.type(), form, null);
-		Trade trade = trades.saveAndFlush(Trade.create(userId, form.type(), p.date(), p.stock().getId(), p.accountId(),
-				p.shares(), p.price(), p.fee(), p.tax(), p.amount(), LocalDateTime.now(clock)));
+		Priced p = priceNew(form);
+		Trade trade = trades.saveAndFlush(newTrade(userId, form.type(), p));
 		saveAllocations(trade, p.loanAllocations());
 		checkConsistency(trade, p.loanAllocations().keySet());
 		if (form.type() == TradeType.BUY || form.type() == TradeType.SELL) {
@@ -157,27 +156,44 @@ public class TradeService {
 		return trade;
 	}
 
+	/**
+	 * 只檢查、不存（引導的「預覽」，設計文件 2026-10-25-onboarding 7a-1）：和 {@link #create} 用同一段檢查
+	 * （{@link #priceNew}、{@link #checkConsistency(Trade, Set, List, Supplier)}），訊息一模一樣。
+	 * create 是存了再檢查整體（期初持股要最早、賣出不超過持有、借款出的錢不超過尚未投入）；這裡不寫資料庫，
+	 * 而是把還沒存的這筆加進交易清單和投資組合的計算裡，檢查同樣的規則。
+	 */
+	@Transactional(readOnly = true)
+	public void validate(TradeForm form) {
+		Long userId = currentUser.id();
+		Priced p = priceNew(form);
+		Trade candidate = newTrade(userId, form.type(), p);
+		List<Trade> active = new ArrayList<>(trades.findByUserIdAndVoidedFalse(userId));
+		active.add(candidate);
+		// 還沒有 id：當成最新的一筆（同一天排在已存的交易之後，和存好後的順序一樣）
+		TradeEvent event = new TradeEvent(Long.MAX_VALUE, candidate.getType(), candidate.getTradeDate(),
+				candidate.getStockId(), candidate.getShares(), candidate.getAmount(), p.loanAllocations());
+		checkConsistency(candidate, p.loanAllocations().keySet(), active, () -> portfolioReader.read(userId, event));
+	}
+
+	/** 新增前的檢查與計算：create、validate、quote 共用。 */
+	private Priced priceNew(TradeForm form) {
+		if (form.type() == null) {
+			throw new TradeValidationException("請選擇交易類型");
+		}
+		return price(form.type(), form, null);
+	}
+
+	private Trade newTrade(Long userId, TradeType type, Priced p) {
+		return Trade.create(userId, type, p.date(), p.stock().getId(), p.accountId(), p.shares(), p.price(), p.fee(),
+				p.tax(), p.amount(), LocalDateTime.now(clock));
+	}
+
 	/** 修改交易（類型與股票不能改）：每個改到的欄位寫修改紀錄，自動記的現金異動跟著改。 */
 	@Transactional
 	public Trade edit(Long id, TradeForm form, String reason) {
 		Long userId = currentUser.id();
 		Trade trade = findMineForEdit(id);
-		if (form.type() != null && form.type() != trade.getType()) {
-			throw new TradeValidationException("交易類型不能改；請作廢後重新記一筆");
-		}
-		Stock stock = stocks.findById(trade.getStockId()).orElseThrow();
-		if (form.stockCode() != null && !form.stockCode().equals(stock.getCode())) {
-			throw new TradeValidationException("股票不能改；請作廢後重新記一筆");
-		}
-		// 改了股數或價格，但手續費、證交稅、實際入帳還是舊的數字（表單帶入的）→ 視為沒填，依新的股數與價格重算
-		boolean repriced = !Objects.equals(form.shares(), trade.getShares())
-				|| !sameAmount(form.price(), trade.getPrice());
-		TradeForm withStock = new TradeForm(trade.getType(), form.date(), stock.getCode(), form.accountId(),
-				form.shares(), form.price(), staleOrSubmitted(repriced, form.fee(), trade.getFee()),
-				staleOrSubmitted(repriced, form.tax(), trade.getTax()),
-				trade.getType() == TradeType.SELL ? staleOrSubmitted(repriced, form.amount(), trade.getAmount()) : null,
-				form.allocations());
-		Priced p = price(trade.getType(), withStock, trade.getId());
+		Priced p = priceEdit(trade, form);
 		String clean = cleanReason(reason);
 		Map<String, String> before = snapshot(trade, allocationText(userId, trade.getId()));
 		trade.change(p.date(), p.accountId(), p.shares(), p.price(), p.fee(), p.tax(), p.amount());
@@ -196,6 +212,72 @@ public class TradeService {
 		movements.findByUserIdAndTradeIdAndVoidedFalse(userId, trade.getId())
 			.ifPresent(m -> cashMovements.followTrade(m.getId(), trade, clean));
 		return trade;
+	}
+
+	/**
+	 * 修改前的檢查與計算：edit、validateEdit、quoteEdit 共用。類型與股票不能改；
+	 * 改了股數或價格，但手續費、證交稅、實際入帳還是舊的數字（表單帶入的）→ 視為沒填，依新的股數與價格重算。
+	 */
+	private Priced priceEdit(Trade trade, TradeForm form) {
+		if (form.type() != null && form.type() != trade.getType()) {
+			throw new TradeValidationException("交易類型不能改；請作廢後重新記一筆");
+		}
+		Stock stock = stocks.findById(trade.getStockId()).orElseThrow();
+		if (form.stockCode() != null && !form.stockCode().equals(stock.getCode())) {
+			throw new TradeValidationException("股票不能改；請作廢後重新記一筆");
+		}
+		boolean repriced = !Objects.equals(form.shares(), trade.getShares())
+				|| !sameAmount(form.price(), trade.getPrice());
+		TradeForm withStock = new TradeForm(trade.getType(), form.date(), stock.getCode(), form.accountId(),
+				form.shares(), form.price(), staleOrSubmitted(repriced, form.fee(), trade.getFee()),
+				staleOrSubmitted(repriced, form.tax(), trade.getTax()),
+				trade.getType() == TradeType.SELL ? staleOrSubmitted(repriced, form.amount(), trade.getAmount()) : null,
+				form.allocations());
+		return price(trade.getType(), withStock, trade.getId());
+	}
+
+	/**
+	 * 修改前只檢查、不存（引導修改已儲存股票的「預覽」，設計文件 2026-10-25-onboarding 4、7a-1）：和 {@link #edit}
+	 * 用同一段計算（{@link #priceEdit}）與整體一致的規則，訊息一模一樣。不寫資料庫，而是在交易清單和投資組合的計算裡
+	 * 把這筆換成修改後的內容來檢查。
+	 */
+	@Transactional(readOnly = true)
+	public void validateEdit(Long id, TradeForm form) {
+		Long userId = currentUser.id();
+		Trade trade = findMineActive(id);
+		Priced p = priceEdit(trade, form);
+		Trade candidate = newTrade(userId, trade.getType(), p);
+		List<Trade> active = new ArrayList<>(trades.findByUserIdAndVoidedFalse(userId).stream()
+			.filter(t -> !t.getId().equals(id))
+			.toList());
+		active.add(candidate);
+		// 用同一個 id：投資組合計算時取代資料庫裡的這一筆
+		TradeEvent event = new TradeEvent(trade.getId(), trade.getType(), candidate.getTradeDate(),
+				candidate.getStockId(), candidate.getShares(), candidate.getAmount(), p.loanAllocations());
+		checkConsistency(candidate, p.loanAllocations().keySet(), active, () -> portfolioReader.read(userId, event));
+	}
+
+	/** 修改的試算：依修改後的輸入算出手續費、總成本（和 edit 的計算一樣）。 */
+	@Transactional(readOnly = true)
+	public Priced quoteEdit(Long id, TradeForm form) {
+		return priceEdit(findMineActive(id), form);
+	}
+
+	/** 目前登入者沒作廢的交易，依 id 由舊到新。 */
+	@Transactional(readOnly = true)
+	public List<Trade> listMine() {
+		return trades.findByUserIdAndVoidedFalse(currentUser.id()).stream()
+			.sorted(Comparator.comparing(Trade::getId))
+			.toList();
+	}
+
+	/** 自己的、沒作廢的交易（只讀、不鎖）。 */
+	private Trade findMineActive(Long id) {
+		Trade t = find(id);
+		if (t.isVoided()) {
+			throw new TradeValidationException("這筆交易已經作廢");
+		}
+		return t;
 	}
 
 	/** 作廢交易：連同自動記的現金異動一起作廢（不硬刪除）。 */
@@ -231,10 +313,7 @@ public class TradeService {
 	/** 試算：依目前輸入算出手續費、證交稅、總成本或預估入帳（表單上的「試算」按鈕）。 */
 	@Transactional(readOnly = true)
 	public Priced quote(TradeForm form) {
-		if (form.type() == null) {
-			throw new TradeValidationException("請選擇交易類型");
-		}
-		return price(form.type(), form, null);
+		return priceNew(form);
 	}
 
 	// ---------- 查詢 ----------
@@ -322,7 +401,7 @@ public class TradeService {
 				StockMetricsCalculator.returnPercent(marketValue, pricedCost).orElse(null), whole(dividendTotal),
 				annualTotal, prices.findLatestTradeDate().orElse(null), stocks.count() == 0, holdings,
 				recentSales(all, portfolio, stockById), tradeRows(userId, all, stockById),
-				suggestions(userId, portfolio, today), currentUser.isAdmin());
+				suggestions(userId, portfolio, today), currentUser.isAdmin(), noticeService.stockAndFundingNotices());
 	}
 
 	public LocalDate today() {
@@ -403,7 +482,16 @@ public class TradeService {
 	 */
 	private void checkConsistency(Trade trade, Set<Long> loanIds) {
 		Long userId = currentUser.id();
-		List<Trade> active = trades.findByUserIdAndVoidedFalse(userId);
+		checkConsistency(trade, loanIds, trades.findByUserIdAndVoidedFalse(userId), () -> portfolioOf(userId));
+	}
+
+	/**
+	 * 整體一致的規則本身：active 是包含這筆在內的所有沒作廢交易，portfolio 算出包含這筆的投資組合。
+	 * 存檔後檢查（讀資料庫）與只檢查不存（{@link #validate}，把還沒存的這筆加進去）共用這一段。
+	 */
+	private void checkConsistency(Trade trade, Set<Long> loanIds, List<Trade> active,
+			Supplier<Portfolio> portfolioOf) {
+		Long userId = currentUser.id();
 		List<Trade> sameStock = active.stream().filter(t -> t.getStockId().equals(trade.getStockId())).toList();
 		List<Trade> openings = sameStock.stream().filter(t -> t.getType() == TradeType.OPENING).toList();
 		if (openings.size() > 1) {
@@ -420,7 +508,7 @@ public class TradeService {
 		}
 		Portfolio portfolio;
 		try {
-			portfolio = portfolioOf(userId);
+			portfolio = portfolioOf.get();
 		}
 		catch (IllegalArgumentException ex) {
 			throw new TradeValidationException(trade.getType() == TradeType.SELL ? OVERSOLD : "這樣之後的賣出會超過持有股數");
@@ -493,7 +581,7 @@ public class TradeService {
 	 * @param shares 目前持股（新增股票質押時勾選擔保持股用）
 	 * @param price  最新收盤價；沒有股價為 null
 	 */
-	public record HoldingValue(Long stockId, String label, BigDecimal value, boolean priced, long shares,
+	public record HoldingValue(Long stockId, String code, String label, BigDecimal value, boolean priced, long shares,
 			BigDecimal price) {
 	}
 
@@ -512,7 +600,7 @@ public class TradeService {
 			Stock s = stockById.get(pos.stockId());
 			BigDecimal price = latest.get(pos.stockId());
 			BigDecimal value = price == null ? pos.cost() : StockMetricsCalculator.marketValue(pos.shares(), price);
-			return new HoldingValue(pos.stockId(), s.getCode() + " " + s.getName(), whole(value), price != null,
+			return new HoldingValue(pos.stockId(), s.getCode(), s.getCode() + " " + s.getName(), whole(value), price != null,
 					pos.shares(), price);
 		}).toList();
 	}

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--
+	新增借款（新撥款、依還款方式）的欄位：資金來源頁的新增借款（funding/loan-form.html）與第一次使用引導的借款這一步
+	（onboarding/loans.html）共用，依還款方式顯示欄位的做法只有這一份（app.js 的 data-show-source／data-show-for，
+	藏起來的欄位同時 disabled、不會送出）。放在 th:object="${form}" 的表單裡，名稱、銀行由外面的頁面放。
+	要的 model：repaymentMethods、myAccounts；資金來源頁另外要 myHoldings（擔保股票）。
+
+	newLoanFields(wizard)
+	  wizard＝true（引導）：文字照引導樣稿（「怎麼還？」「擔保股票等記完股票再設定」），不放擔保股票與維持率門檻，
+	  欄位不加 required（沒填的由伺服器列在「還有欄位沒填好」裡）。
+-->
+<th:block th:fragment="newLoanFields(wizard)">
+	<input type="hidden" name="origin" value="NEW">
+
+	<p class="label-text" th:text="${wizard} ? '怎麼還？' : '還款方式'">還款方式</p>
+	<div class="method-group">
+		<label class="method" th:each="m : ${repaymentMethods}">
+			<input type="radio" th:field="*{repaymentMethod}" th:value="${m}">
+			<span><strong th:text="${m.label()}">每月固定還款</strong>
+				<small th:switch="${m.name()}">
+					<span th:case="'MONTHLY_FIXED'">每月扣一筆，裡面有本金和利息（一般信貸、房貸）</span>
+					<span th:case="'BULLET'">平常不用繳，到期一次付清（例如股票質押）</span>
+					<span th:case="*">每月只繳利息，本金到期才還</span>
+				</small></span>
+		</label>
+	</div>
+
+	<label class="checkbox-line"><input type="checkbox" name="pledge" value="true"
+			th:checked="*{type?.name() == 'PLEDGE'}"> <th:block th:text="${wizard} ? '這是股票質押（擔保股票等記完股票再設定）'
+			: '這是股票質押（要設定擔保股票、看維持率）'">這是股票質押（要設定擔保股票、看維持率）</th:block></label>
+
+	<label for="startDate">撥款日</label>
+	<input id="startDate" type="date" th:field="*{startDate}" th:required="${!wizard}">
+
+	<label for="startPrincipal">借款金額</label>
+	<input id="startPrincipal" type="text" inputmode="numeric" th:field="*{startPrincipal}" placeholder="整數元"
+			th:required="${!wizard}">
+
+	<label for="annualRatePercent">年利率（%）</label>
+	<input id="annualRatePercent" type="text" inputmode="decimal" th:field="*{annualRatePercent}" placeholder="例如 2.15"
+			th:required="${!wizard}">
+
+	<div data-show-source="repaymentMethod" data-show-for="MONTHLY_FIXED">
+		<p class="muted">用來把每月扣款拆成本金和利息。</p>
+		<label for="monthlyPayment">每月扣款金額（照銀行）</label>
+		<input id="monthlyPayment" type="text" inputmode="numeric" th:field="*{monthlyPayment}" placeholder="例如 5133">
+		<p class="muted">存好後，系統會用金額、利率、期數算一次合約月付金；差超過 1 元會提醒你確認（不會擋下）。</p>
+
+		<label for="payDay">每月扣款日</label>
+		<input id="payDay" type="number" min="1" max="31" th:field="*{payDay}" placeholder="幾號（1～31）">
+
+		<label for="remainingPeriods">總期數</label>
+		<input id="remainingPeriods" type="number" min="1" max="600" th:field="*{remainingPeriods}" placeholder="7 年就是 84 期">
+		<p class="muted">第一期是撥款日之後的第一個扣款日。</p>
+	</div>
+
+	<div data-show-source="repaymentMethod" data-show-for="INTEREST_ONLY">
+		<label for="interestDay">每月繳息日</label>
+		<input id="interestDay" type="number" min="1" max="31" name="payDay" th:value="*{payDay}" placeholder="幾號（1～31）">
+	</div>
+
+	<div data-show-source="repaymentMethod" data-show-for="BULLET INTEREST_ONLY">
+		<p class="muted">年利率用來估到期要付多少利息、每個月的應計利息。</p>
+		<label for="dueDate">到期日</label>
+		<input id="dueDate" type="date" th:field="*{dueDate}">
+	</div>
+
+	<label for="payAccountId">往來帳戶</label>
+	<select id="payAccountId" th:field="*{payAccountId}">
+		<option value="">請選擇</option>
+		<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">土銀帳戶</option>
+	</select>
+	<p class="muted">撥款進這個帳戶，也從這個帳戶扣款。</p>
+
+	<label for="fee">開辦費、手續費（選填）</label>
+	<input id="fee" type="text" inputmode="numeric" th:field="*{fee}" placeholder="例如 3000">
+	<p class="muted">記在撥款日，算進借錢的成本，「賺贏利息」會一起扣。</p>
+
+	<div class="collateral-box" data-show-source="pledge" data-show-for="true" th:unless="${wizard}">
+		<p class="label-text">擔保股票（勾選拿去質押的持股）</p>
+		<p class="muted" th:if="${#lists.isEmpty(myHoldings)}">還沒有持股，先到股票頁記好股票，存好借款後再到資金來源頁設定擔保。</p>
+		<th:block th:unless="${#lists.isEmpty(myHoldings)}">
+			<p class="muted">勾了就是全部持股都拿去擔保；只押一部分就把股數改小，不能超過持股。</p>
+			<table class="table collateral-table">
+				<thead><tr><th></th><th>股票</th><th class="num">擔保股數</th><th class="num">收盤價</th></tr></thead>
+				<tbody>
+				<tr th:each="h, iter : ${myHoldings}">
+					<td><input type="checkbox" th:name="|collateral[${iter.index}].stockId|" th:value="${h.stockId()}"
+							th:attr="aria-label=|拿 ${h.label()} 去擔保|"></td>
+					<td th:title="${h.label()}"><span th:text="${h.label()}">00830 國泰費城半導體</span><br>
+						<small class="muted" th:text="|持有 ${#numbers.formatInteger(h.shares(), 1, 'COMMA')}|">持有 1,000</small></td>
+					<td class="num"><input type="number" min="1" th:max="${h.shares()}" th:name="|collateral[${iter.index}].shares|"
+							th:value="${h.shares()}" th:attr="aria-label=|${h.label()} 的擔保股數|"></td>
+					<td class="num" th:text="${h.price() != null} ? ${#numbers.formatDecimal(h.price(), 1, 'COMMA', 2, 'POINT')} : '—'">80.90</td>
+				</tr>
+				</tbody>
+			</table>
+		</th:block>
+		<div class="threshold-row">
+			<label>提醒線（%）<input type="number" min="1" max="1000" step="0.01" th:field="*{warnPercent}" placeholder="150"></label>
+			<label>追繳線（%）<input type="number" min="1" max="1000" step="0.01" th:field="*{callPercent}" placeholder="130"></label>
+		</div>
+		<p class="muted">維持率 ＝ 擔保股票市值 ÷ 剩餘本金，存好後顯示在資金來源頁。</p>
+	</div>
+</th:block>
+</body>
+</html>

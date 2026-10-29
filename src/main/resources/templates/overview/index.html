@@ -21,6 +21,7 @@
 				</p>
 			</div>
 		</div>
+		<th:block th:replace="~{fragments/notices :: notices(${v.notices()})}"></th:block>
 
 		<p class="alert alert-warning" th:each="r : ${v.reminders()}">
 			<span th:text="|${r.period()} ${r.itemName()}還沒填|">2026-10 生活費還沒填</span> ·

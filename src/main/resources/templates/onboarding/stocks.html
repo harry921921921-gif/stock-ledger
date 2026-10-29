@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>股票 · 第一次使用 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+	<script th:src="@{/js/onboarding.js}" defer></script>
+</head>
+<body>
+<!--
+	第一次使用引導 3 股票（設計文件 2026-10-25-onboarding 3、3.1、3.2、4；樣稿 onboarding.html stock）。做法和帳戶、借款一樣：
+	整頁只有一個表單 step-form，所有按鈕都用 formaction 送出它；editingId 是正在修改的已儲存股票；confirm 是確認區塊；
+	locked 時欄位鎖住，按鈕改用預覽時收起來的那份內容。
+	記法（type）二選一：BUY「一次買進」、OPENING「目前持有」。日期、價格的標題與交割戶依記法切換（app.js 的
+	data-show-source="type"；藏起來的欄位同時 disabled、不會送出），沒有 JavaScript 時全部顯示，伺服器照記法檢查。
+	資金來源是表格（設計文件 3.4；樣稿「這筆錢從哪裡來？」）：每列借款＋張數（sourceMode=UNITS）或金額（AMOUNT），
+	參數 sources[i].loanId、sources[i].value；換算金額、自己的錢都由 Service 算好放在 sourceTable，這裡只顯示。
+	「＋ 加一筆借款」「拿掉」「改填金額／改填張數」是 formaction 按鈕，送到 /welcome/stocks/sources/…，伺服器改好列再轉回來，不用 JavaScript。
+	accountNote（修改時才有）：這筆記在不是交割戶的帳戶，引導的下拉表示不了，只顯示說明、不放下拉；存檔時 Service 沿用原本的帳戶。
+	fee 是隱藏欄位：修改時帶著股票頁改過的手續費，股數或價格改了 TradeService 會重算（和股票頁一樣）。
+-->
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('')}"></aside>
+	<main class="content">
+		<div class="wizard">
+			<ol th:replace="~{onboarding/layout :: stepper(${stepNumber})}"></ol>
+			<p th:replace="~{onboarding/layout :: back(${goUrl}, 'loans')}"></p>
+			<h1 tabindex="-1" th:autofocus="${!confirm}">記你的股票</h1>
+			<p class="muted">一檔一檔記。同一檔分好幾次買、還記得日期和價格，就一次一次記；不記得就用「目前持有」一次填總數，價格填大概的平均成本也可以。</p>
+			<p class="alert alert-info" th:if="${notice != null}" th:text="${notice}">確認畫面已過期，請再按一次儲存</p>
+
+			<div class="added" th:if="${!#lists.isEmpty(saved)}">
+				<strong>已儲存的股票</strong>
+				<ul>
+					<li th:each="row : ${saved}" th:classappend="${row.id == editingId} ? 'editing'">
+						<span th:text="${row.label}">0050　10 張　73.5 元（玉山質押 4、土銀信貸 3、自己 3）</span>
+						<span th:if="${row.id == editingId}" class="muted">（修改中）</span>
+						<button th:unless="${row.id == editingId}" type="submit" form="step-form" class="btn btn-link"
+							th:formaction="@{/welcome/stocks/{id}/edit(id=${row.id})}" formnovalidate>修改</button>
+					</li>
+				</ul>
+			</div>
+
+			<form id="step-form" class="form-card" method="post" th:action="@{${previewUrl}}" th:object="${form}">
+				<p class="edit-note" th:if="${editingId != null}">正在修改已儲存的資料；改好按「儲存修改」。剛才打到一半的內容會保留，改完自動放回來。</p>
+				<input type="hidden" th:if="${editingId != null}" name="editing" th:value="${editingId}">
+
+				<fieldset class="step-fields" th:disabled="${locked}">
+					<label for="stockCode">股票代號</label>
+					<input id="stockCode" type="text" th:field="*{stockCode}" maxlength="20" placeholder="例如 0050">
+
+					<p class="label-text">怎麼記？</p>
+					<div class="method-group">
+						<label class="method" th:each="k : ${kinds}">
+							<input type="radio" th:field="*{type}" th:value="${k}">
+							<span th:switch="${k.name()}">
+								<th:block th:case="'BUY'"><strong>一次買進</strong><small>記得哪天、用多少錢買的</small></th:block>
+								<th:block th:case="*"><strong>目前持有（不記得每次怎麼買）</strong><small>填總股數和平均成本，一檔只能有一筆</small></th:block>
+							</span>
+						</label>
+					</div>
+
+					<div class="two">
+						<div>
+							<label for="date"><span data-show-source="type" data-show-for="BUY">買進日期</span><span
+									data-show-source="type" data-show-for="OPENING">開始記帳的日期</span></label>
+							<input id="date" type="date" th:field="*{date}">
+						</div>
+						<div>
+							<label for="shares">股數</label>
+							<input id="shares" type="text" inputmode="numeric" th:field="*{shares}" placeholder="1000">
+						</div>
+					</div>
+
+					<label for="price"><span data-show-source="type" data-show-for="BUY">成交價</span><span
+							data-show-source="type" data-show-for="OPENING">平均成本（含手續費，不記得填大概的）</span></label>
+					<input id="price" type="text" inputmode="decimal" th:field="*{price}" placeholder="例如 73.5">
+					<p class="hint muted" data-show-source="type" data-show-for="OPENING">券商 App 的庫存頁有「成本均價」；查不到就填今天的收盤價，報酬率會從今天開始算。</p>
+
+					<div data-show-source="type" data-show-for="BUY">
+						<label for="accountId" th:if="${accountNote == null}">從哪個交割戶扣款</label>
+						<p class="label-text" th:if="${accountNote != null}">從哪個帳戶扣款</p>
+						<p class="hint muted" th:if="${accountNote != null}" th:text="${accountNote}">記在「台銀活存」帳戶，要改請到股票頁</p>
+						<select id="accountId" th:field="*{accountId}" th:if="${accountNote == null}">
+							<option th:each="a : ${settlementAccounts}" th:value="${a.id}" th:text="${a.name}">玉山交割戶</option>
+						</select>
+						<input type="hidden" th:field="*{fee}">
+						<p class="hint muted">手續費系統會自動算，和對帳單不同再到股票頁修改。</p>
+					</div>
+
+					<p class="label-text">這筆錢從哪裡來？</p>
+					<input type="hidden" name="sourceMode" th:value="${sourceTable.units} ? 'UNITS' : 'AMOUNT'">
+					<div class="src-box">
+						<table class="table src-table">
+							<thead>
+								<tr>
+									<th>來源</th>
+									<th class="num" th:text="${sourceTable.units} ? '張數' : '金額（元）'">張數</th>
+									<th class="num">換算金額</th>
+									<th></th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr th:each="row, it : ${sourceTable.rows}">
+									<td>
+										<select th:name="|sources[${it.index}].loanId|" aria-label="借款">
+											<option th:each="loan : ${loans}" th:value="${loan.id}" th:text="${loan.label}"
+												th:selected="${row.loanId == loan.id}">玉山質押</option>
+										</select>
+									</td>
+									<td class="num">
+										<input type="text" th:inputmode="${sourceTable.units} ? 'numeric' : 'decimal'"
+											th:name="|sources[${it.index}].value|" th:value="${row.value}"
+											th:placeholder="${sourceTable.units} ? '4' : '294419'"
+											th:aria-label="${sourceTable.units} ? '張數' : '金額（元）'">
+									</td>
+									<td class="num" th:text="${row.amount}">294,419</td>
+									<td>
+										<button type="submit" class="btn btn-link" formnovalidate
+											th:formaction="@{/welcome/stocks/sources/remove/{i}(i=${it.index})}">拿掉</button>
+									</td>
+								</tr>
+							</tbody>
+							<tfoot>
+								<tr>
+									<td>自己的錢（自動算）</td>
+									<td class="num" th:text="${sourceTable.ownUnits}">3 張</td>
+									<td class="num" th:text="${sourceTable.ownAmount}">220,814</td>
+									<td></td>
+								</tr>
+							</tfoot>
+						</table>
+						<div class="src-actions">
+							<button th:if="${sourceTable.canAdd}" type="submit" class="btn btn-link" formnovalidate
+								th:formaction="@{/welcome/stocks/sources/add}">＋ 加一筆借款</button>
+							<button th:if="${!#lists.isEmpty(sourceTable.rows)}" type="submit" class="btn btn-link" formnovalidate
+								th:formaction="@{/welcome/stocks/sources/mode}"
+								th:text="${sourceTable.units} ? '改填金額' : '改填張數'">改填金額</button>
+						</div>
+						<p class="hint muted">全部是自己的錢就不用加。借款那幾張填張數，系統照「張數 ÷ 總張數 × 總成本」換算成金額，剩下的算自己的錢。</p>
+					</div>
+				</fieldset>
+
+				<div class="form-actions" th:if="${!confirm}">
+					<button type="submit" class="btn btn-secondary"
+						th:text="${editingId == null} ? '儲存這筆股票' : '儲存修改'">儲存這筆股票</button>
+					<button th:if="${editingId != null}" type="submit" class="btn btn-link"
+						th:formaction="@{/welcome/stocks/cancel-edit}" formnovalidate>取消修改</button>
+				</div>
+			</form>
+
+			<th:block th:if="${confirm}">
+				<section th:replace="~{onboarding/confirm :: confirm(${what}, ${rows}, ${warnings}, ${errors}, ${saveUrl}, ${backUrl}, ${formToken})}"></section>
+			</th:block>
+
+			<div class="step-actions">
+				<button th:replace="~{onboarding/layout :: leave(${goUrl})}"></button>
+				<button th:replace="~{onboarding/layout :: next(${goUrl}, 'next', '股票記完了，下一步 →', false)}"></button>
+			</div>
+		</div>
+	</main>
+</div>
+</body>
+</html>

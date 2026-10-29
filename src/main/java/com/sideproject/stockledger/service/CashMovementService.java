@@ -109,6 +109,27 @@ public class CashMovementService {
 				form.amount(), null, LocalDateTime.now(clock)));
 	}
 
+	/**
+	 * 只檢查、不存（引導的「預覽」，設計文件 2026-10-25-onboarding 7a-1）：帳戶還沒建立，所以只檢查初始現金餘額本身
+	 * （和 {@link #setOpening} 共用同一段，訊息一樣）；「帳戶已經有更早的異動」要等帳戶存在才有意義，存檔時才檢查。
+	 */
+	public void validateOpening(OpeningForm form) {
+		checkOpeningValue(form);
+	}
+
+	/**
+	 * 只檢查、不存，帳戶已經存在時用（引導修改已儲存帳戶的預覽）：和 {@link #setOpening}／{@link #editOpening}
+	 * 走同一段檢查，包含「帳戶已經有更早的異動」；已有的初始現金餘額是要修改的那筆，不算更早的異動。
+	 */
+	@Transactional(readOnly = true)
+	public void validateOpening(Long accountId, OpeningForm form) {
+		Long userId = currentUser.id();
+		CashAccount account = findMyAccount(accountId);
+		Long selfId = movements.findByUserIdAndAccountIdAndTypeAndVoidedFalse(userId, account.getId(),
+				CashMovementType.OPENING).map(CashMovement::getId).orElse(null);
+		validateOpening(userId, account.getId(), form, selfId);
+	}
+
 	/** 輸入實際餘額：存實際餘額，差額（餘額調整）由事件推算；同一帳戶同一天最多一筆（spec 4.6-4）。 */
 	@Transactional
 	public CashMovement reconcile(Long accountId, ReconcileForm form) {
@@ -476,15 +497,20 @@ public class CashMovementService {
 
 	/** 初始現金餘額是起點：不能晚於這個帳戶已經記過的其他異動。selfId 是修改中的那筆（新增時為 null）。 */
 	private void validateOpening(Long userId, Long accountId, OpeningForm form, Long selfId) {
+		checkOpeningValue(form);
+		Optional<LocalDate> earliest = movements.findEarliestDate(userId, accountId, selfId == null ? -1L : selfId);
+		if (earliest.isPresent() && earliest.get().isBefore(form.date())) {
+			throw new CashValidationException("這個帳戶在 " + earliest.get() + " 已經有異動，初始現金餘額日期不能晚於這一天");
+		}
+	}
+
+	/** 初始現金餘額本身的金額與日期，不看帳戶裡其他異動。 */
+	private void checkOpeningValue(OpeningForm form) {
 		checkWholeAmount(form.amount());
 		if (form.amount().signum() < 0) {
 			throw new CashValidationException("初始現金餘額不能是負數");
 		}
 		checkDate(form.date());
-		Optional<LocalDate> earliest = movements.findEarliestDate(userId, accountId, selfId == null ? -1L : selfId);
-		if (earliest.isPresent() && earliest.get().isBefore(form.date())) {
-			throw new CashValidationException("這個帳戶在 " + earliest.get() + " 已經有異動，初始現金餘額日期不能晚於這一天");
-		}
 	}
 
 	/** 對帳的檢查。selfId 是修改中的那筆（新增時為 null），檢查「同一天一筆」時要排除自己。 */

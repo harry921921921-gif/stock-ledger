@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>第一次使用 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('')}"></aside>
+	<main class="content">
+		<div class="wizard">
+			<ol th:replace="~{onboarding/layout :: stepper(${stepNumber})}"></ol>
+			<h1 tabindex="-1" autofocus>歡迎，我們一步一步把資料放進來</h1>
+			<p class="muted">照這個順序記：先建帳戶，再記借款，再記股票，最後設定質押的擔保股票。每一筆都要按「儲存」並確認才會記下來；「下一步」只是換頁。每一步都可以略過，中途離開下次會從這裡接著做。</p>
+			<div class="form-actions">
+				<a class="btn btn-primary" th:href="@{/welcome/accounts}">開始</a>
+				<form th:action="@{/welcome/skip}" method="post">
+					<button type="submit" class="btn btn-link">我自己來，不用引導</button>
+				</form>
+			</div>
+		</div>
+	</main>
+</div>
+</body>
+</html>

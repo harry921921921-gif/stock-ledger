@@ -190,6 +190,11 @@ public class Loan {
 		return type;
 	}
 
+	/** 還款方式；沒有（V11 以前的舊資料）就照原本的行為對應（{@link RepaymentMethod#legacyOf}，spec 4.8a-9）。 */
+	public RepaymentMethod repaymentMethodOrLegacy() {
+		return repaymentMethod != null ? repaymentMethod : RepaymentMethod.legacyOf(type);
+	}
+
 	public RepaymentMethod getRepaymentMethod() {
 		return repaymentMethod;
 	}

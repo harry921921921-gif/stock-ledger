@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>借款 · 第一次使用 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<!--
+	第一次使用引導 2 借款：還沒有借款、也還沒按過「有」時先問（設計文件 2026-10-25-onboarding 3；樣稿 onboarding.html loanAsk）。
+	這頁沒有打到一半的資料，所以「上一步」是連結、「先離開」是自己的小表單（不送 step-form，不會留下借款草稿）。
+-->
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('')}"></aside>
+	<main class="content">
+		<div class="wizard">
+			<ol th:replace="~{onboarding/layout :: stepper(${stepNumber})}"></ol>
+			<p th:replace="~{onboarding/layout :: backLink('/welcome/accounts')}"></p>
+			<h1 tabindex="-1" autofocus>你有拿去投資的借款嗎？</h1>
+			<p class="muted">信貸、股票質押都算。沒有的話直接記股票。</p>
+			<div class="choice">
+				<form th:action="@{/welcome/loans/form}" method="get">
+					<button type="submit"><strong>有，我要記借款</strong><small>一筆一筆記</small></button>
+				</form>
+				<form th:action="@{/welcome/loans/none}" method="post">
+					<button type="submit"><strong>沒有，略過</strong><small>之後想記可以到「資金來源」頁</small></button>
+				</form>
+			</div>
+			<div class="step-actions">
+				<form th:replace="~{onboarding/layout :: leaveButton}"></form>
+			</div>
+		</div>
+	</main>
+</div>
+</body>
+</html>

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--
+	借款改小、不夠付已經用它買的股票（spec 4.8a-10、DR-051）：提示與要調整的交易。資金來源頁的確認修改
+	（funding/shortfall-confirm.html）與第一次使用引導的借款這一步（onboarding/loans.html）共用；按鈕由各自的頁面放。
+
+	shortfallCuts(message, cuts)
+	  message：LoanShortfallException 的訊息（「借款金額小於已經用它買股票的金額，差 23,500 元」）
+	  cuts：List<AllocationCut>，Service 算好的每筆交易原本與改成的「借款出的錢」
+-->
+<th:block th:fragment="shortfallCuts(message, cuts)">
+	<p class="alert alert-warning" th:text="${message}">借款金額小於已經用它買股票的金額，差 23,500 元</p>
+	<p class="muted">按「確定修改」後，下面這些交易裡這筆借款出的錢會調小，差額改算自有資金；交易的其他內容不變，也不會另外動帳戶的錢。</p>
+
+	<table class="table">
+		<thead><tr><th>日期</th><th>股票</th><th class="num">借款出的錢（原本）</th><th class="num">改成</th></tr></thead>
+		<tbody>
+		<tr th:each="c : ${cuts}">
+			<td th:text="${c.date()}">2026-09-28</td>
+			<td th:text="${c.stockLabel()}">0050 元大台灣50</td>
+			<td class="num" th:text="${#numbers.formatInteger(c.from(), 1, 'COMMA')}">73,500</td>
+			<td class="num" th:text="${#numbers.formatInteger(c.to(), 1, 'COMMA')}">50,000</td>
+		</tr>
+		</tbody>
+	</table>
+</th:block>
+</body>
+</html>

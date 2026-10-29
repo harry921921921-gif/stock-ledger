@@ -55,6 +55,10 @@ public class AppUser {
 	@Column(name = "locked_until")
 	private LocalDateTime lockedUntil;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "onboarding_step", nullable = false, length = 20)
+	private OnboardingStep onboardingStep = OnboardingStep.WELCOME;
+
 	@Column(name = "created_at", nullable = false)
 	private LocalDateTime createdAt;
 
@@ -104,6 +108,17 @@ public class AppUser {
 		recordLoginSuccess();
 	}
 
+	/** 引導進度只往前：目標不比現在更後面就不動（DR-050）。 */
+	public void advanceOnboarding(OnboardingStep to) {
+		if (to.isAfter(onboardingStep)) {
+			onboardingStep = to;
+		}
+	}
+
+	public void finishOnboarding() {
+		onboardingStep = OnboardingStep.DONE;
+	}
+
 	/** 鎖到 lockedUntil 那一刻為止（不含）。 */
 	public boolean isLockedAt(LocalDateTime now) {
 		return lockedUntil != null && now.isBefore(lockedUntil);
@@ -139,6 +154,10 @@ public class AppUser {
 
 	public LocalDateTime getLockedUntil() {
 		return lockedUntil;
+	}
+
+	public OnboardingStep getOnboardingStep() {
+		return onboardingStep;
 	}
 
 	public LocalDateTime getCreatedAt() {

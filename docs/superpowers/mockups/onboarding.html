@@ -416,9 +416,21 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 						<select class="acctSelect" data-label="交割戶" data-required></select>
 						<p class="hint muted">手續費系統會自動算，和對帳單不同再到股票頁修改。</p>
 					</div>
-					<label>這筆錢從哪裡來？</label>
-					<select id="source" data-label="資金來源"><option>自己的錢</option></select>
-					<p class="hint muted">用借款買的就選那筆借款；一部分借款、一部分自己的錢，之後可以在股票頁拆。</p>
+					<p class="label-text">這筆錢從哪裡來？</p>
+					<input type="hidden" id="srcState" value="">
+					<div id="srcBox" class="src-box">
+						<table class="table src-table" id="srcTable">
+							<thead><tr><th>來源</th><th class="num" id="srcUnitHead">張數</th><th class="num">換算金額</th><th></th></tr></thead>
+							<tbody></tbody>
+							<tfoot><tr><td>自己的錢（自動算）</td><td class="num" id="ownUnits">—</td><td class="num" id="ownAmount">—</td><td></td></tr></tfoot>
+						</table>
+						<div class="src-actions">
+							<button type="button" class="btn btn-link" id="srcAdd" onclick="addSrcRow()">＋ 加一筆借款</button>
+							<button type="button" class="btn btn-link" id="srcMode" onclick="toggleSrcMode()">改填金額</button>
+						</div>
+						<p class="hint muted" id="srcHint">全部是自己的錢就不用加。借款那幾張填張數，系統照「張數 ÷ 總張數 × 總成本」換算成金額，剩下的算自己的錢。</p>
+						<p class="field-error" id="srcError" hidden></p>
+					</div>
 					<div class="form-actions"><button type="button" class="btn btn-secondary" onclick="askSave('stockForm', readStock)">儲存這筆股票</button></div>
 				</form>
 				<div class="step-actions">
@@ -474,6 +486,12 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 </dialog>
 
 <style>
+	.src-box { margin: 4px 0 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+	.src-table { font-size: 0.9em; margin: 0; }
+	.src-table th, .src-table td { padding: 6px 8px; }
+	.src-table select { padding: 4px 6px; }
+	.src-table input[type=number] { width: 110px; padding: 4px 6px; margin: 0; }
+	.src-actions { display: flex; gap: 16px; margin-top: 6px; }
 	.added li { display: flex; align-items: center; gap: 8px; }
 	.added li .btn-link { padding: 0 4px; font-size: 14px; color: var(--primary); }
 	.added li.editing { font-weight: 700; }
@@ -494,7 +512,7 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 		loanForm: { list: 'loanList', items: [], editing: null, draft: null,
 			label: s => s.name + (s.pledge ? '（股票質押）' : ''), after: refreshSources, check: checkLoan },
 		stockForm: { list: 'stockList', items: [], editing: null, draft: null,
-			label: s => s.code + '　' + Number(s.shares).toLocaleString() + ' 股' + (s.price ? '　' + s.price + ' 元' : '') },
+			label: s => s.code + '　' + Number(s.shares).toLocaleString() + ' 股' + (s.price ? '　' + s.price + ' 元' : '') + (s.src ? '（' + s.src + '）' : ''), check: srcCheck },
 		collatForm: { list: 'collatSaved', items: [], editing: null, draft: null, single: true,
 			label: s => s.picks.length ? s.picks.join('、') : '沒有勾選擔保股票' }
 	};
@@ -538,7 +556,7 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 
 	// ---------- 表單內容的快照（儲存、修改、草稿都用） ----------
 	function controls(form) {
-		return [...form.querySelectorAll('input, select')].filter(el => !el.closest('#collatTable'));
+		return [...form.querySelectorAll('input, select')].filter(el => !el.closest('#collatTable') && !el.closest('#srcTable'));
 	}
 	function snap(form) {
 		return controls(form).map(el => el.type === 'radio' || el.type === 'checkbox' ? el.checked : el.value);
@@ -547,7 +565,7 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 		controls(form).forEach((el, i) => {
 			if (el.type === 'radio' || el.type === 'checkbox') el.checked = s[i]; else el.value = s[i];
 		});
-		showMethod(); showKind(); checkLoan();
+		showMethod(); showKind(); checkLoan(); if (form.contains($('srcState'))) loadSrc($('srcState').value);
 	}
 	function clearForm(form) {
 		controls(form).forEach(el => {
@@ -556,7 +574,7 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 			else if (el.type === 'checkbox') el.checked = false;
 			else if (el.tagName !== 'SELECT') el.value = '';
 		});
-		showMethod(); showKind(); checkLoan();
+		showMethod(); showKind(); checkLoan(); if (form.contains($('srcState'))) loadSrc('');
 	}
 
 	// 把表單裡看得到的欄位整理成「欄位：內容」
@@ -571,6 +589,7 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 			else v = el.value;
 			rows.push([el.dataset.label, v]);
 		});
+		if (form.id === 'stockForm') srcSummary().forEach((p, i) => rows.push([i === 0 ? '資金來源' : '', p]));
 		if (form.id === 'collatForm') {
 			collatPicks().reverse().forEach(p => rows.unshift(['擔保股票', p]));
 		}
@@ -709,11 +728,105 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 	function readLoan() {
 		return { name: $('loanName').value || '（沒有名稱）', pledge: $('isPledge').checked };
 	}
-	function refreshSources() {
-		const keep = $('source').value;
-		$('source').innerHTML = '<option>自己的錢</option>' + forms.loanForm.items.map(l => '<option>' + l.name + '</option>').join('');
-		$('source').value = keep;
-		if (!$('source').value) $('source').selectedIndex = 0;
+	// ---------- 股票的資金來源：按張數分配（設計文件 3.4） ----------
+	// 樣稿的試算；正式版放在 Java 的 Calculator，這裡只是讓樣稿看起來像真的
+	let srcMode = 'units'; // units = 填張數；amount = 填金額
+	let srcRows = [];      // [{ loan, value }]
+	function loanNames() { return forms.loanForm.items.map(l => l.name); }
+	function refreshSources() { renderSrc(); }
+	function totalShares() { return Number($('stockShares').value) || 0; }
+	function totalCost() {
+		const shares = totalShares(), price = Number($('stockPrice').value) || 0;
+		const amount = Math.floor(shares * price);
+		if (!amount) return 0;
+		const opening = document.querySelector('input[name=k]:checked').value === 'OPENING';
+		if (opening) return amount; // 目前持有：平均成本已含手續費
+		const fee = Math.max(Math.floor(amount * 0.001425), shares % 1000 === 0 ? 20 : 1);
+		return amount + fee;
+	}
+	function fmt(n) { return Math.round(n).toLocaleString('en-US'); }
+	// 每筆借款四捨五入到元；差額算自己的錢；沒有自己的錢時最後一筆借款吸收差額
+	function srcAmounts() {
+		const cost = totalCost(), lots = totalShares() / 1000;
+		const loans = srcRows.map(r => {
+			const v = Number(r.value) || 0;
+			return srcMode === 'units' ? (lots ? Math.round(v / lots * cost) : 0) : Math.round(v);
+		});
+		let own = cost - loans.reduce((a, b) => a + b, 0);
+		const ownUnits = lots - srcRows.reduce((a, r) => a + (Number(r.value) || 0), 0);
+		if (srcMode === 'units' && loans.length && ownUnits === 0 && own !== 0) { loans[loans.length - 1] += own; own = 0; }
+		return { cost, loans, own, ownUnits };
+	}
+	function srcCheck() {
+		const out = [];
+		const names = srcRows.map(r => r.loan);
+		if (new Set(names).size !== names.length) out.push({ text: '同一筆借款不能出現兩列。', block: true });
+		if (srcRows.some(r => String(r.value).trim() === '')) out.push({ text: '還沒填：借款的' + (srcMode === 'units' ? '張數' : '金額'), block: true });
+		if (srcMode === 'units') {
+			if (srcRows.some(r => r.value !== '' && (!Number.isInteger(Number(r.value)) || Number(r.value) <= 0))) out.push({ text: '張數要填正整數（零股之後再討論，可以先改填金額）。', block: true });
+			if (srcRows.length && totalShares() % 1000 !== 0) out.push({ text: '這筆有零股，請改填金額。', block: true });
+			const a = srcAmounts();
+			if (a.ownUnits < 0) out.push({ text: '借款的張數加起來超過這筆的張數（' + totalShares() / 1000 + ' 張）。', block: true });
+		} else {
+			const a = srcAmounts();
+			if (a.own < 0) out.push({ text: '借款出的錢加起來超過這筆的總成本（' + fmt(a.cost) + ' 元）。', block: true });
+		}
+		return out;
+	}
+	function renderSrc() {
+		const names = loanNames();
+		$('srcAdd').hidden = names.length === 0;
+		$('srcMode').hidden = srcRows.length === 0;
+		$('srcMode').textContent = srcMode === 'units' ? '改填金額' : '改填張數';
+		$('srcUnitHead').textContent = srcMode === 'units' ? '張數' : '金額（元）';
+		const a = srcAmounts();
+		$('srcTable').querySelector('tbody').innerHTML = srcRows.map((r, i) =>
+			'<tr><td><select onchange="srcRows[' + i + '].loan=this.value;srcChanged()">'
+			+ names.map(n => '<option' + (n === r.loan ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></td>'
+			+ '<td class="num"><input type="number" min="0" value="' + r.value + '" oninput="srcRows[' + i + '].value=this.value;srcChanged(false)" placeholder="' + (srcMode === 'units' ? '4' : '294419') + '"></td>'
+			+ '<td class="num" data-amt="' + i + '">' + (a.cost ? fmt(a.loans[i]) : '—') + '</td>'
+			+ '<td><button type="button" class="btn btn-link" onclick="srcRows.splice(' + i + ',1);srcChanged()">拿掉</button></td></tr>').join('');
+		updateSrcTotals();
+	}
+	function updateSrcTotals() {
+		const a = srcAmounts();
+		srcRows.forEach((r, i) => { const td = document.querySelector('[data-amt="' + i + '"]'); if (td) td.textContent = a.cost ? fmt(a.loans[i]) : '—'; });
+		$('ownUnits').textContent = srcMode === 'units' ? (totalShares() ? a.ownUnits + ' 張' : '—') : '';
+		$('ownAmount').textContent = a.cost ? fmt(a.own) : '—';
+		const errs = srcCheck().filter(c => !c.text.startsWith('還沒填'));
+		$('srcError').hidden = errs.length === 0;
+		$('srcError').textContent = errs.map(e => e.text).join(' ');
+		$('srcState').value = JSON.stringify({ mode: srcMode, rows: srcRows });
+	}
+	function srcChanged(rerender = true) { rerender ? renderSrc() : updateSrcTotals(); }
+	function addSrcRow() {
+		const used = srcRows.map(r => r.loan);
+		const next = loanNames().find(n => !used.includes(n)) || loanNames()[0];
+		srcRows.push({ loan: next, value: '' });
+		renderSrc();
+	}
+	// 切換填張數／填金額：把目前的數字換算過去，使用者不用重填
+	function toggleSrcMode() {
+		const a = srcAmounts(), lots = totalShares() / 1000;
+		if (srcMode === 'units') {
+			srcRows = srcRows.map((r, i) => ({ loan: r.loan, value: a.cost ? String(a.loans[i]) : '' }));
+			srcMode = 'amount';
+		} else {
+			srcRows = srcRows.map(r => ({ loan: r.loan, value: a.cost ? String(Math.round(Number(r.value) / a.cost * lots)) : '' }));
+			srcMode = 'units';
+		}
+		renderSrc();
+	}
+	function loadSrc(state) {
+		const s = state ? JSON.parse(state) : { mode: 'units', rows: [] };
+		srcMode = s.mode; srcRows = s.rows; renderSrc();
+	}
+	function srcSummary() {
+		const a = srcAmounts();
+		const unit = srcMode === 'units';
+		const parts = srcRows.map((r, i) => r.loan + (unit ? ' ' + r.value + ' 張' : '') + '（' + fmt(a.loans[i]) + ' 元）');
+		parts.push('自己的錢' + (unit ? ' ' + a.ownUnits + ' 張' : '') + '（' + fmt(a.own) + ' 元）');
+		return parts;
 	}
 	function showKind() {
 		const k = document.querySelector('input[name=k]:checked').value;
@@ -722,7 +835,7 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 		$('priceLabel').textContent = k === 'BUY' ? '成交價' : '平均成本（含手續費，不記得填大概的）';
 	}
 	function readStock() {
-		return { code: $('stockCode').value || '（沒有代號）', shares: $('stockShares').value || '0', price: $('stockPrice').value };
+		return { code: $('stockCode').value || '（沒有代號）', shares: $('stockShares').value || '0', price: $('stockPrice').value, src: srcRows.length ? srcSummary().join('、') : '' };
 	}
 	function collatPicks() {
 		return [...document.querySelectorAll('#collatTable tbody tr[data-code]')]
@@ -743,7 +856,7 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 			: '<tr><td colspan="3" class="muted">還沒有持股，可以按「之後再設定」。</td></tr>';
 		go('collat');
 	}
-	showMethod(); showKind();
+	showMethod(); showKind(); ['stockShares', 'stockPrice'].forEach(id => $(id).addEventListener('input', () => updateSrcTotals())); document.querySelectorAll('input[name=k]').forEach(el => el.addEventListener('change', () => updateSrcTotals())); renderSrc();
 </script>
 </body>
 </html>

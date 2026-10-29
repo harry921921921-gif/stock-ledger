@@ -2,6 +2,7 @@ package com.sideproject.stockledger.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -162,6 +163,24 @@ class StockControllerTest {
 				.param("shares", "1000").param("price", "10").param("accountId", settlement.toString()))
 			.andExpect(redirectedUrl("/stocks"));
 		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM trade", Integer.class)).isEqualTo(1);
+	}
+
+	/** 手續費打錯格式：顯示整數金額的訊息，不會出現借款的「開辦費」字樣（messages.properties 的 form.fee 兩頁共用）。 */
+	@Test
+	@WithUserDetails(value = "sc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void badFeeSaysNothingAboutLoanFee() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+		String token = token(mvc.perform(get("/stocks/trades/new").session(session)).andReturn().getResponse()
+			.getContentAsString());
+
+		mvc.perform(post("/stocks/trades/new").session(session).with(csrf()).param("formToken", token)
+				.param("type", "BUY").param("date", today.toString()).param("stockCode", "0056")
+				.param("shares", "1000").param("price", "10").param("fee", "abc")
+				.param("accountId", settlement.toString()))
+			.andExpect(status().isOk())
+			.andExpect(content().string(containsString("請輸入整數金額")))
+			.andExpect(content().string(not(containsString("開辦費"))));
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM trade", Integer.class)).isZero();
 	}
 
 	/** 修改（寫修改紀錄）、作廢；全部異動頁點交易自動記的那筆，會轉到交易的修改頁。 */

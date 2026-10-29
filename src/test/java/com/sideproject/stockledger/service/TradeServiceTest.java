@@ -229,6 +229,38 @@ class TradeServiceTest {
 			.hasMessageContaining("超過它的尚未投入");
 	}
 
+	/**
+	 * 修改前只檢查（引導的修改預覽）：把這筆換成修改後的內容檢查，不會把自己算兩次；訊息和 edit 一樣；不寫資料庫。
+	 * quoteEdit 的總成本和 edit 存進去的一樣。
+	 */
+	@Test
+	void validateEditReplacesItselfAndMatchesEdit() {
+		Loan pledge = loans.create(new LoanForm("玉山質押", LoanType.PLEDGE, "玉山銀行", LoanOrigin.EXISTING,
+				new BigDecimal("100000"), today.minusDays(30), new BigDecimal("100000"), new BigDecimal("3"), null,
+				settlement, 25, null, null, null));
+		Trade buy = service.create(buy(today, 1000, "58.75", null,
+				List.of(new AllocationLine(pledge.getId(), new BigDecimal("58833")))));
+		Trade opening = service.create(new TradeForm(TradeType.OPENING, today.minusDays(20), "0056", null, 2000L,
+				new BigDecimal("50"), null, null, null, List.of()));
+
+		// 借款出了 58,833，算兩次會超過 100,000；期初持股算兩次會變成「已經有期初持股」
+		service.validateEdit(buy.getId(), buy(today, 1000, "58.75", null,
+				List.of(new AllocationLine(pledge.getId(), new BigDecimal("58833")))));
+		service.validateEdit(opening.getId(), new TradeForm(TradeType.OPENING, today.minusDays(20), "0056", null, 3000L,
+				new BigDecimal("50"), null, null, null, List.of()));
+
+		TradeForm tooMuch = buy(today, 2000, "58.75", null,
+				List.of(new AllocationLine(pledge.getId(), new BigDecimal("117667"))));
+		assertThat(service.quoteEdit(buy.getId(), buy(today, 2000, "58.75", null, List.of())).amount())
+			.isEqualByComparingTo("117667");
+		assertThatThrownBy(() -> service.validateEdit(buy.getId(), tooMuch)).hasMessageContaining("超過它的尚未投入");
+		assertThatThrownBy(() -> service.edit(buy.getId(), tooMuch, "x")).hasMessageContaining("超過它的尚未投入");
+		assertThatThrownBy(() -> service.validateEdit(opening.getId(), buy(today, 1000, "50", null, List.of())))
+			.hasMessage("交易類型不能改；請作廢後重新記一筆");
+		assertThat(jdbc.queryForObject("SELECT shares FROM trade WHERE id = ?", Long.class, opening.getId()))
+			.isEqualTo(2000L);
+	}
+
 	/** 修改交易：寫修改紀錄，自動記的現金異動跟著改。 */
 	@Test
 	void editWritesRevisionsAndFollowsCash() {

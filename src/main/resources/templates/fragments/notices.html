@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!-- 頁面標題下方的提醒（設計文件 2026-10-25-onboarding 3.3）：每則一列，整列可點。 -->
+<th:block th:fragment="notices(list)">
+	<p class="alert alert-warning" th:each="n : ${list}">
+		<a th:href="${n.url()}" th:text="${n.text()}">第一次使用引導還有沒完成的步驟</a>
+	</p>
+</th:block>
+</body>
+</html>

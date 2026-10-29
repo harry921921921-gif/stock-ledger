@@ -63,6 +63,19 @@ class PortfolioReader {
 	 */
 	@Transactional(readOnly = true)
 	Portfolio read(Long userId, Long loanId, Map<Long, BigDecimal> loanAmountByTrade) {
+		return read(userId, loanId, loanAmountByTrade, null);
+	}
+
+	/**
+	 * 假設多一筆還沒存的交易（extra 的 id 是已存的交易時，改成把那筆換成 extra），算出投資組合；只算不存
+	 * （引導預覽新增、修改交易時檢查規則，設計文件 2026-10-25-onboarding 7a-1）。
+	 */
+	@Transactional(readOnly = true)
+	Portfolio read(Long userId, TradeEvent extra) {
+		return read(userId, null, Map.of(), extra);
+	}
+
+	private Portfolio read(Long userId, Long loanId, Map<Long, BigDecimal> loanAmountByTrade, TradeEvent extra) {
 		Map<Long, Map<Long, BigDecimal>> allocationByTrade = new HashMap<>();
 		for (SourceAllocation a : allocations.findByUserId(userId)) {
 			allocationByTrade.computeIfAbsent(a.getTradeId(), k -> new HashMap<>()).put(a.getLoanId(), a.getAmount());
@@ -76,10 +89,14 @@ class PortfolioReader {
 				byLoan.remove(loanId);
 			}
 		});
-		List<TradeEvent> events = trades.findByUserIdAndVoidedFalse(userId).stream()
+		List<TradeEvent> events = new ArrayList<>(trades.findByUserIdAndVoidedFalse(userId).stream()
 			.map(t -> new TradeEvent(t.getId(), t.getType(), t.getTradeDate(), t.getStockId(), t.getShares(),
 					t.getAmount(), allocationByTrade.getOrDefault(t.getId(), Map.of())))
-			.toList();
+			.toList());
+		if (extra != null) {
+			events.removeIf(e -> e.id().equals(extra.id()));
+			events.add(extra);
+		}
 		List<DividendIncome> income = movements.findByUserIdAndTypeAndVoidedFalse(userId, CashMovementType.DIVIDEND)
 			.stream()
 			.map(m -> new DividendIncome(m.getMovementDate(), m.getStockId(), m.getAmount()))

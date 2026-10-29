@@ -19,6 +19,7 @@
 			</div>
 			<a class="btn btn-primary" th:href="@{/funding/new}">新增借款</a>
 		</div>
+		<th:block th:replace="~{fragments/notices :: notices(${v.notices()})}"></th:block>
 
 		<p class="alert alert-info" th:if="${message}" th:text="${message}">已新增</p>
 		<div class="alert alert-warning" th:if="${kept != null and !#lists.isEmpty(kept)}">
@@ -52,7 +53,7 @@
 		<p class="muted" th:unless="${#lists.isEmpty(v.loans())}">「尚未投入」是還沒拿去買股票的借款；買股票時在資金來源選這筆借款，就會從這裡扣掉。「投資賺到」＝這筆借款買的股票帳面損益＋已實現損益＋配息；扣掉已付利息還是正的，就是「賺贏利息」。</p>
 
 		<section class="account-grid">
-			<div class="account-card" th:each="c : ${v.loans()}">
+			<div class="account-card" th:each="c : ${v.loans()}" th:id="|loan-${c.id()}|">
 				<div class="account-card-header">
 					<strong th:text="${c.name()}">土銀信貸</strong>
 					<span class="badge" th:text="${c.repaymentLabel()}">每月固定還款</span>

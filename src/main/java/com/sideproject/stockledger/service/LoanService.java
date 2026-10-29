@@ -14,6 +14,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -94,6 +96,7 @@ public class LoanService {
 	private final CashMovementService cashMovements;
 	private final MoneyFormatter money;
 	private final CurrentUser currentUser;
+	private final NoticeService noticeService;
 	private final Clock clock;
 	private final TradeService tradeService;
 	private final StockRepository stocks;
@@ -104,7 +107,8 @@ public class LoanService {
 			CashMovementRepository movements, LoanFactsReader facts, LoanPostingService posting,
 			CashMovementService cashMovements, MoneyFormatter money, CurrentUser currentUser, Clock clock,
 			TradeService tradeService, StockRepository stocks, PledgeCollateralRepository collaterals,
-			CashMovementRevisionRepository revisions) {
+			CashMovementRevisionRepository revisions, NoticeService noticeService) {
+		this.noticeService = noticeService;
 		this.revisions = revisions;
 		this.tradeService = tradeService;
 		this.stocks = stocks;
@@ -130,10 +134,10 @@ public class LoanService {
 	@Transactional
 	public Loan create(LoanForm submitted) {
 		Long userId = currentUser.id();
-		RepaymentMethod method = submitted.repaymentMethod() != null ? submitted.repaymentMethod()
-				: RepaymentMethod.legacyOf(submitted.type());
-		LoanForm form = normalize(submitted, method);
-		BigDecimal rate = validate(form, method);
+		Checked checked = check(submitted);
+		LoanForm form = checked.form();
+		RepaymentMethod method = checked.method();
+		BigDecimal rate = checked.rate();
 		BigDecimal original = form.origin() == LoanOrigin.NEW && form.originalAmount() == null ? form.startPrincipal()
 				: form.originalAmount();
 		LocalDateTime now = LocalDateTime.now(clock);
@@ -153,16 +157,10 @@ public class LoanService {
 			movements.saveAndFlush(CashMovement.ofLoan(loan, CashMovementType.LOAN_FEE, form.startDate(),
 					form.payAccountId(), form.fee(), null, now));
 		}
-		if (method == RepaymentMethod.MONTHLY_FIXED) {
-			checkSchedule(loan);
-		}
 		posting.postDue(loan, today());
 		for (CollateralPick pick : form.collateral()) {
-			if (pick.stockId() == null || pick.shares() == null || pick.shares() == 0) {
+			if (!picked(pick)) {
 				continue;
-			}
-			if (form.type() != LoanType.PLEDGE) {
-				throw new LoanValidationException("只有股票質押要選擔保股票");
 			}
 			Stock stock = stocks.findById(pick.stockId()).orElseThrow(() -> new NotFoundException("找不到這檔股票"));
 			setCollateral(loan.getId(), stock.getCode(), pick.shares());
@@ -195,10 +193,60 @@ public class LoanService {
 				f.callPercent());
 	}
 
-	/** 銀行扣款比當期利息少（填錯）時，攤還表會出現負的本金：擋下並說明（DR-048）。 */
+	/**
+	 * 只檢查、不存（引導的「預覽」，設計文件 2026-10-25-onboarding 7a-1）：和 {@link #create} 走同一段
+	 * {@link #check}，丟出的訊息一模一樣。擔保股票的股數要等借款存好才能檢查（setCollateral），不在這裡。
+	 */
+	@Transactional(readOnly = true)
+	public void validate(LoanForm submitted) {
+		check(submitted);
+	}
+
+	/** 新增前的所有檢查都在這裡：create 與 validate 共用。 */
+	private Checked check(LoanForm submitted) {
+		RepaymentMethod method = submitted.repaymentMethod() != null ? submitted.repaymentMethod()
+				: RepaymentMethod.legacyOf(submitted.type());
+		LoanForm form = normalize(submitted, method);
+		BigDecimal rate = validate(form, method);
+		if (form.type() != LoanType.PLEDGE && form.collateral().stream().anyMatch(LoanService::picked)) {
+			throw new LoanValidationException("只有股票質押要選擔保股票");
+		}
+		if (method == RepaymentMethod.MONTHLY_FIXED) {
+			checkSchedule(form, rate);
+		}
+		return new Checked(form, method, rate);
+	}
+
+	/** 檢查過的表單（已補上省略的欄位）、還款方式、轉成比率的年利率。 */
+	private record Checked(LoanForm form, RepaymentMethod method, BigDecimal rate) {
+	}
+
+	private static boolean picked(CollateralPick pick) {
+		return pick.stockId() != null && pick.shares() != null && pick.shares() != 0;
+	}
+
+	/**
+	 * 銀行扣款比當期利息少（填錯）時，攤還表會出現負的本金：擋下並說明（DR-048）。
+	 * 用表單算，不必先存：新借款的攤還表只看起算本金、第一個利率版本與銀行扣款（都是起算日生效），還沒有已記的期數，
+	 * 和存好後由 LoanFacts 讀出來的輸入相同。
+	 */
+	private static void checkSchedule(LoanForm form, BigDecimal rate) {
+		List<PaymentChange> payments = form.monthlyPayment() == null ? List.of()
+				: List.of(new PaymentChange(form.startDate(), form.monthlyPayment()));
+		checkSchedule(() -> new InstallmentCalculator.Input(form.startPrincipal(), form.remainingPeriods(),
+				form.firstPeriod(), form.payDay(), List.of(new RateChange(form.startDate(), rate)), List.of(), Map.of(),
+				payments));
+	}
+
+	/** 已經存好的借款（修改、還本後）：照資料庫裡的事件重算攤還表。 */
 	private void checkSchedule(Loan loan) {
+		checkSchedule(() -> facts.read(loan).installmentInput());
+	}
+
+	/** 建立輸入（期數、扣款日不合理也會丟 IllegalArgumentException）和算攤還表都轉成同樣的借款錯誤訊息。 */
+	private static void checkSchedule(Supplier<InstallmentCalculator.Input> input) {
 		try {
-			InstallmentCalculator.schedule(facts.read(loan).installmentInput());
+			InstallmentCalculator.schedule(input.get());
 		}
 		catch (IllegalArgumentException ex) {
 			throw new LoanValidationException(ex.getMessage());
@@ -234,8 +282,35 @@ public class LoanService {
 			return null;
 		}
 		BigDecimal bank = originalPayment(f.payments(), loan.getStartDate()).orElseThrow();
-		BigDecimal expected = InstallmentCalculator.monthlyPayment(f.installmentInput().startPrincipal(),
-				originalRate(f.rates(), loan.getStartDate()), loan.getRemainingPeriods());
+		return contractPaymentWarning(f.installmentInput().startPrincipal(),
+				originalRate(f.rates(), loan.getStartDate()), loan.getRemainingPeriods(), bank);
+	}
+
+	/**
+	 * 和 {@link #paymentWarning(Long)} 一樣的提醒，但用還沒存的表單算（引導的確認畫面）。
+	 * 不是每月固定還款、沒填銀行扣款、或算不出來（金額、利率、期數沒填或不合理，存檔時會擋）時為 null。
+	 */
+	public String paymentWarning(LoanForm form) {
+		RepaymentMethod method = form.repaymentMethod() != null ? form.repaymentMethod()
+				: RepaymentMethod.legacyOf(form.type());
+		if (method != RepaymentMethod.MONTHLY_FIXED || form.monthlyPayment() == null || form.startPrincipal() == null
+				|| form.startPrincipal().signum() <= 0 || form.remainingPeriods() == null || form.remainingPeriods() < 1
+				|| form.remainingPeriods() > MAX_PERIODS) {
+			return null;
+		}
+		BigDecimal rate;
+		try {
+			rate = toRate(form.annualRatePercent());
+		}
+		catch (LoanValidationException ex) {
+			return null;
+		}
+		return contractPaymentWarning(form.startPrincipal(), rate, form.remainingPeriods(), form.monthlyPayment());
+	}
+
+	/** 合約月付金（金額、利率、期數算出來的）和銀行扣款差超過 1 元時的提醒文字；否則 null。 */
+	private String contractPaymentWarning(BigDecimal principal, BigDecimal rate, int periods, BigDecimal bank) {
+		BigDecimal expected = InstallmentCalculator.monthlyPayment(principal, rate, periods);
 		BigDecimal diff = expected.subtract(bank).abs();
 		if (diff.compareTo(BigDecimal.ONE) <= 0) {
 			return null;
@@ -556,6 +631,26 @@ public class LoanService {
 	@Transactional
 	public void setCollateral(Long id, String stockCode, Long shares) {
 		Loan loan = findForUpdate(id);
+		Stock stock = checkCollateral(loan, stockCode, shares);
+		Long userId = currentUser.id();
+		Optional<PledgeCollateral> existing = collaterals.findByUserIdAndLoanIdAndStockId(userId, loan.getId(),
+				stock.getId());
+		if (shares == 0) {
+			existing.ifPresent(collaterals::delete);
+			return;
+		}
+		existing.ifPresentOrElse(c -> c.setShares(shares),
+				() -> collaterals.save(PledgeCollateral.of(userId, loan.getId(), stock.getId(), shares)));
+	}
+
+	/** 只檢查、不存（引導擔保頁的預覽，設計文件 7a-1）：和 {@link #setCollateral} 同一段檢查，丟出的訊息一模一樣。 */
+	@Transactional(readOnly = true)
+	public void validateCollateral(Long id, String stockCode, Long shares) {
+		checkCollateral(findActive(id), stockCode, shares);
+	}
+
+	/** 擔保股票的規則：只有質押、股票要存在、股數不能是負的，擔保合計（含其他質押）不能超過目前持股。回傳那檔股票。 */
+	private Stock checkCollateral(Loan loan, String stockCode, Long shares) {
 		if (loan.getType() != LoanType.PLEDGE) {
 			throw new LoanValidationException("只有質押要設定擔保股票");
 		}
@@ -567,13 +662,10 @@ public class LoanService {
 		if (shares == null || shares < 0) {
 			throw new LoanValidationException("請輸入擔保股數（0 表示拿掉）");
 		}
-		Long userId = currentUser.id();
-		Optional<PledgeCollateral> existing = collaterals.findByUserIdAndLoanIdAndStockId(userId, loan.getId(),
-				stock.getId());
 		if (shares == 0) {
-			existing.ifPresent(collaterals::delete);
-			return;
+			return stock;
 		}
+		Long userId = currentUser.id();
 		Position position = tradeService.portfolio().positions().get(stock.getId());
 		long held = position == null ? 0 : position.shares();
 		// 同一檔股票可能同時擔保好幾筆質押：合計不能超過持股
@@ -587,14 +679,54 @@ public class LoanService {
 					: "擔保股數加上其他質押的 " + money.plain(BigDecimal.valueOf(otherLoans)) + " 股，超過持有股數（"
 							+ money.plain(BigDecimal.valueOf(held)) + " 股）");
 		}
-		existing.ifPresentOrElse(c -> c.setShares(shares),
-				() -> collaterals.save(PledgeCollateral.of(userId, loan.getId(), stock.getId(), shares)));
+		return stock;
+	}
+
+	/** 這筆質押目前的擔保股票：股票 id → 擔保股數（照股票 id 排）。別人的借款 → 404。 */
+	@Transactional(readOnly = true)
+	public Map<Long, Long> collateralOf(Long id) {
+		Loan loan = find(id);
+		Map<Long, Long> shares = new TreeMap<>();
+		collaterals.findByUserIdAndLoanId(currentUser.id(), loan.getId())
+			.forEach(c -> shares.put(c.getStockId(), c.getShares()));
+		return shares;
+	}
+
+	/**
+	 * 其他沒作廢的質押已經押的股數：股票 id → 合計股數（和 {@link #checkCollateral} 的「合計不能超過持股」同一個算法）。
+	 * 別人的借款 → 404。
+	 */
+	@Transactional(readOnly = true)
+	public Map<Long, Long> collateralOfOtherLoans(Long id) {
+		Loan loan = find(id);
+		Map<Long, Long> shares = new TreeMap<>();
+		collaterals.findActiveByUserId(currentUser.id())
+			.stream()
+			.filter(c -> !c.getLoanId().equals(loan.getId()))
+			.forEach(c -> shares.merge(c.getStockId(), c.getShares(), Long::sum));
+		return shares;
 	}
 
 	/** 設定這筆質押的維持率提醒線與追繳線（%），從今天起生效（spec 5.5、DR-007；沒設定時 150%、130%）。 */
 	@Transactional
 	public void setThresholds(Long id, BigDecimal warnPercent, BigDecimal callPercent) {
 		Loan loan = findForUpdate(id);
+		checkThresholds(loan, warnPercent, callPercent);
+		LocalDate effective = today().isBefore(loan.getStartDate()) ? loan.getStartDate() : today();
+		LocalDateTime now = LocalDateTime.now(clock);
+		rates.save(RateSetting.loanThreshold(currentUser.id(), loan.getId(), RateKind.MAINTENANCE_WARN,
+				warnPercent.divide(HUNDRED, 10, RoundingMode.HALF_UP), effective, now));
+		rates.save(RateSetting.loanThreshold(currentUser.id(), loan.getId(), RateKind.MAINTENANCE_CALL,
+				callPercent.divide(HUNDRED, 10, RoundingMode.HALF_UP), effective, now));
+	}
+
+	/** 只檢查、不存（引導擔保頁的預覽）：和 {@link #setThresholds} 同一段檢查，訊息一樣。 */
+	@Transactional(readOnly = true)
+	public void validateThresholds(Long id, BigDecimal warnPercent, BigDecimal callPercent) {
+		checkThresholds(findActive(id), warnPercent, callPercent);
+	}
+
+	private static void checkThresholds(Loan loan, BigDecimal warnPercent, BigDecimal callPercent) {
 		if (loan.getType() != LoanType.PLEDGE) {
 			throw new LoanValidationException("只有質押有維持率");
 		}
@@ -607,12 +739,31 @@ public class LoanService {
 		if (warnPercent.compareTo(callPercent) <= 0) {
 			throw new LoanValidationException("提醒線要高於追繳線");
 		}
-		LocalDate effective = today().isBefore(loan.getStartDate()) ? loan.getStartDate() : today();
-		LocalDateTime now = LocalDateTime.now(clock);
-		rates.save(RateSetting.loanThreshold(currentUser.id(), loan.getId(), RateKind.MAINTENANCE_WARN,
-				warnPercent.divide(HUNDRED, 10, RoundingMode.HALF_UP), effective, now));
-		rates.save(RateSetting.loanThreshold(currentUser.id(), loan.getId(), RateKind.MAINTENANCE_CALL,
-				callPercent.divide(HUNDRED, 10, RoundingMode.HALF_UP), effective, now));
+	}
+
+	/** 一筆質押目前生效的維持率提醒線與追繳線（%）；沒設定時是預設的 150%、130%。 */
+	public record Thresholds(BigDecimal warnPercent, BigDecimal callPercent) {
+	}
+
+	/** 這筆質押今天生效的門檻（撥款日在未來就用撥款日那天），和資金來源頁顯示的一樣。別人的借款 → 404。 */
+	@Transactional(readOnly = true)
+	public Thresholds thresholdsOf(Long id) {
+		return thresholds(find(id), today());
+	}
+
+	private Thresholds thresholds(Loan loan, LocalDate today) {
+		LocalDate on = today.isBefore(loan.getStartDate()) ? loan.getStartDate() : today;
+		return new Thresholds(percentOrDefault(threshold(loan, RateKind.MAINTENANCE_WARN, on), DEFAULT_WARN),
+				percentOrDefault(threshold(loan, RateKind.MAINTENANCE_CALL, on), DEFAULT_CALL));
+	}
+
+	/** 只讀不鎖的 {@link #findForUpdate}：別人的 → 404，已作廢 → 和存檔一樣的訊息。 */
+	private Loan findActive(Long id) {
+		Loan loan = find(id);
+		if (loan.isVoided()) {
+			throw new LoanValidationException("這筆借款已經作廢");
+		}
+		return loan;
 	}
 
 	// ---------- 查詢 ----------
@@ -682,7 +833,8 @@ public class LoanService {
 			cards.add(card(loan, f, remaining, rate, monthInterest, accountNames, today, stockContext));
 		}
 		BigDecimal weighted = LoanRateCalculator.weightedAverage(weights).map(LoanService::percent).orElse(null);
-		return new FundingView(debt, weighted, interest.setScale(0, RoundingMode.HALF_UP), cards);
+		return new FundingView(debt, weighted, interest.setScale(0, RoundingMode.HALF_UP), cards,
+				noticeService.stockAndFundingNotices());
 	}
 
 	private LoanCard card(Loan loan, LoanFacts f, BigDecimal remaining, BigDecimal rate, BigDecimal monthInterest,
@@ -771,9 +923,9 @@ public class LoanService {
 		BigDecimal warn = null;
 		BigDecimal call = null;
 		if (loan.getType() == LoanType.PLEDGE) {
-			LocalDate on = today.isBefore(loan.getStartDate()) ? loan.getStartDate() : today;
-			warn = percentOrDefault(threshold(loan, RateKind.MAINTENANCE_WARN, on), DEFAULT_WARN);
-			call = percentOrDefault(threshold(loan, RateKind.MAINTENANCE_CALL, on), DEFAULT_CALL);
+			Thresholds t = thresholds(loan, today);
+			warn = t.warnPercent();
+			call = t.callPercent();
 			BigDecimal collateralValue = BigDecimal.ZERO;
 			boolean priced = false;
 			for (PledgeCollateral c : sc.collateralByLoan().getOrDefault(loan.getId(), List.of())) {

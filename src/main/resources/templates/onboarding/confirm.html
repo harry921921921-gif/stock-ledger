@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--
+	儲存前的確認區塊（設計文件 2026-10-25-onboarding 3.2、7a-1）。按「儲存」先 POST 到 preview，伺服器驗證後畫出這一塊：
+	確認畫面不是 JavaScript 彈出視窗，規則只有伺服器一份。按鈕和 token 用 form="step-form" 送出頁面上同一個表單。
+
+	confirm(what, rows, warnings, errors, saveUrl, backUrl, token)
+	  what：「確認要儲存這筆○○嗎？」的○○（帳戶、借款、股票、擔保股票；修改已儲存的資料時傳「修改」）
+	  rows：List<ConfirmRow>，value 空字串顯示「（沒填）」
+	  warnings：List<String> 提醒（紅底，不擋存檔），例如到期日已經過了
+	  errors：List<String> 錯誤；有錯誤時標題換成「還有欄位沒填好，不能儲存」，只有「回去修改」
+	  saveUrl：「確認儲存」送到哪裡；backUrl：「回去修改」送到哪裡（這一步的 go?to=自己，先存草稿再回表單）
+	  token：FormTokens 的一次性代號（按兩次也只存一筆）
+	焦點放在「回去修改」（autofocus）：不小心按到空白鍵或 Enter 也不會儲存。
+-->
+<section class="confirm-box" th:fragment="confirm(what, rows, warnings, errors, saveUrl, backUrl, token)"
+		role="alertdialog" aria-labelledby="confirm-title">
+	<th:block th:if="${!#lists.isEmpty(errors)}">
+		<h2 id="confirm-title">還有欄位沒填好，不能儲存</h2>
+		<p class="muted">請回去把下面這些填好再儲存；已經打的字都還在。</p>
+		<ul class="confirm-errors">
+			<li th:each="e : ${errors}" class="confirm-warn" th:text="${e}">還沒填：價格</li>
+		</ul>
+		<div class="dialog-actions">
+			<button type="submit" form="step-form" class="btn btn-primary" th:formaction="@{${backUrl}}" formnovalidate
+				autofocus>回去修改</button>
+		</div>
+	</th:block>
+	<th:block th:if="${#lists.isEmpty(errors)}">
+		<h2 id="confirm-title" th:text="${'確認要儲存這筆' + what + '嗎？'}">確認要儲存這筆帳戶嗎？</h2>
+		<p class="muted">請檢查下面的內容是否正確，沒問題再按「確認儲存」。</p>
+		<dl class="confirm-list">
+			<th:block th:each="row : ${rows}">
+				<dt th:text="${row.label}">名稱</dt>
+				<dd th:if="${!row.empty}" th:text="${row.value}">玉山交割戶</dd>
+				<dd th:if="${row.empty}" class="empty">（沒填）</dd>
+			</th:block>
+			<dd th:each="w : ${warnings}" class="confirm-warn" th:text="${w}">到期日已經過了</dd>
+		</dl>
+		<input type="hidden" form="step-form" name="formToken" th:if="${token != null}" th:value="${token}">
+		<div class="dialog-actions">
+			<button type="submit" form="step-form" class="btn btn-link" th:formaction="@{${backUrl}}" formnovalidate
+				autofocus>回去修改</button>
+			<button type="submit" form="step-form" class="btn btn-primary" th:formaction="@{${saveUrl}}">確認儲存</button>
+		</div>
+	</th:block>
+</section>
+</body>
+</html>

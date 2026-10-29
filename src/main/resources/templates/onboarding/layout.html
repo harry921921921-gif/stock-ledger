@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--
+	第一次使用引導共用片段（設計文件 2026-10-25-onboarding 3、3.2、4）。
+	stepper(n)：步驟列，n 是目前在第幾步（歡迎頁 0、帳戶 1、借款 2、股票 3、擔保 4、完成 5）；比 n 小的標成做完。
+	  model 有 skipped（第幾步的清單，例如完成頁沒設定擔保時是 [4]）時，那幾步標成略過（劃線），由 Service 判斷。
+
+	有表單的步驟頁：整頁的欄位放在 <form id="step-form" method="post">，下面的按鈕用 form="step-form" 和 formaction
+	送出同一個表單，所以按鈕可以放在頁面任何地方。goUrl 是這一步的 /welcome/{step}/go，伺服器只存草稿、不驗證，再轉到 to。
+	back(goUrl, to)：「← 上一步」。
+	leave(goUrl)：「先離開，下次再繼續」（進度與草稿保留，回總覽）。
+	next(goUrl, to, label, disabled)：「下一步 →」。
+
+	沒有表單的頁面：
+	backLink(url)：「← 上一步」連結（完成頁；沒有打到一半的資料要收）。
+	leaveButton()：「先離開，下次再繼續」（自己一個小表單）。
+-->
+<ol class="stepper" th:fragment="stepper(n)">
+	<li th:each="label, it : ${ {'帳戶', '借款', '股票', '擔保', '完成'} }"
+		th:classappend="${it.count == n} ? 'now' : (${it.count < n} ? (${skipped != null and #lists.contains(skipped, it.count)} ? 'done skipped' : 'done'))"
+		th:text="${it.count + ' ' + label}">1 帳戶</li>
+</ol>
+
+<p class="back" th:fragment="back(goUrl, to)"><button type="submit" form="step-form" class="btn btn-link"
+		th:formaction="@{${goUrl}(to=${to})}" formnovalidate>← 上一步</button></p>
+
+<button th:fragment="leave(goUrl)" type="submit" form="step-form" class="btn btn-link"
+		th:formaction="@{${goUrl}(to='home')}" formnovalidate>先離開，下次再繼續</button>
+
+<button th:fragment="next(goUrl, to, label, disabled)" type="submit" form="step-form" class="btn btn-primary"
+		th:formaction="@{${goUrl}(to=${to})}" th:disabled="${disabled}" formnovalidate th:text="${label}">下一步 →</button>
+
+<p class="back" th:fragment="backLink(url)"><a class="btn btn-link" th:href="@{${url}}">← 上一步</a></p>
+
+<form th:fragment="leaveButton" th:action="@{/welcome/leave}" method="post" class="leave-form">
+	<button type="submit" class="btn btn-link">先離開，下次再繼續</button>
+</form>
+</body>
+</html>

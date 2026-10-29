@@ -44,9 +44,11 @@ public class OverviewService {
 	private final LoanService loans;
 	private final CashMovementService movements;
 	private final Clock clock;
+	private final NoticeService noticeService;
 
 	public OverviewService(TotalAssetsService totalAssets, TradeService trades, LoanService loans,
-			CashMovementService movements, Clock clock) {
+			CashMovementService movements, Clock clock, NoticeService noticeService) {
+		this.noticeService = noticeService;
 		this.totalAssets = totalAssets;
 		this.trades = trades;
 		this.loans = loans;
@@ -83,7 +85,8 @@ public class OverviewService {
 				funding.loans().stream()
 					.filter(LoanCard::dueSoon)
 					.map(c -> new DueReminder(c.name(), c.dueDate(), c.daysToDue(), c.amountAtDue()))
-					.toList());
+					.toList(),
+				noticeService.overviewNotices());
 	}
 
 	/** 這個月沒作廢的資金移動，依類型加總。 */

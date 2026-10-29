@@ -75,6 +75,8 @@ class OverviewControllerTest {
 		jdbc.update("DELETE FROM recurring_item");
 		jdbc.update("DELETE FROM cash_account");
 		amyId = createIfMissing("ov-amy");
+		// 新帳號預設要走第一次使用引導；這裡測的是引導完成後的總覽（fixture）
+		jdbc.update("UPDATE app_user SET onboarding_step = 'DONE' WHERE id = ?", amyId);
 		today = LocalDate.now(clock);
 	}
 

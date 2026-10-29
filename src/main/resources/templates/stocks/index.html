@@ -27,6 +27,7 @@
 				<a class="btn btn-primary" th:href="@{/stocks/trades/new(type='BUY')}">買進</a>
 			</div>
 		</div>
+		<th:block th:replace="~{fragments/notices :: notices(${v.notices()})}"></th:block>
 
 		<p class="alert alert-info" th:if="${message}" th:text="${message}">已新增</p>
 		<p class="alert alert-warning" th:if="${v.stockListEmpty()}">上市股票清單還沒抓到（可能是網路問題），暫時不能輸入股票代號；系統會在下一次排程重試。</p>

@@ -243,3 +243,47 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 .collateral-table input[type=checkbox] { width: auto; margin: 0; }
 .threshold-row { display: flex; gap: 12px; margin-top: 8px; }
 .threshold-row label { flex: 1; margin: 0; }
+
+/* ---------- 第一次使用引導（樣稿 onboarding.html，DR-050） ---------- */
+.wizard { max-width: 760px; }
+.stepper { display: flex; gap: 4px; list-style: none; padding: 0; margin: 0 0 20px; flex-wrap: wrap; }
+.stepper li { flex: 1; min-width: 80px; text-align: center; font-size: 13px; padding: 6px 4px; border-bottom: 3px solid var(--border); color: var(--muted); }
+.stepper li.done { border-color: var(--success-text); color: var(--success-text); }
+.stepper li.now { border-color: var(--primary); color: var(--primary); font-weight: 700; }
+.stepper li.skipped { text-decoration: line-through; }
+.step-actions { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+.summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+.wizard .back { margin: 0 0 8px; }
+/* 引導：儲存前的確認區塊（設計文件 2026-10-25-onboarding 3.2；樣稿 onboarding.html） */
+.confirm-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; margin: 16px 0; }
+.confirm-box h2 { margin: 0 0 4px; font-size: 18px; }
+.confirm-list { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 12px 0 20px; }
+.confirm-list dt { color: var(--muted); }
+.confirm-list dd { margin: 0; font-weight: 600; }
+.confirm-list dd.empty { color: var(--muted); font-weight: 400; }
+.confirm-list dd.confirm-warn { grid-column: 1 / -1; font-weight: 400; }
+.confirm-errors { list-style: none; padding: 0; margin: 12px 0 20px; }
+.confirm-warn { background: var(--error-bg); color: var(--error-text); padding: 8px 12px; border-radius: var(--radius); margin: 8px 0 0; }
+.dialog-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+/* 引導：已儲存清單（每一筆旁邊有「修改」）、修改中的提示、兩欄並排、確認時鎖住的欄位（樣稿 onboarding.html） */
+.added { margin: 0 0 16px; padding: 10px 12px; background: var(--success-bg); color: var(--success-text); border-radius: var(--radius); }
+.added ul { margin: 4px 0 0; padding-left: 20px; }
+.added li { display: flex; align-items: center; gap: 8px; }
+.added li .btn-link { padding: 0 4px; font-size: 14px; color: var(--primary); }
+.added li.editing { font-weight: 700; }
+.edit-note { background: var(--info-bg); color: var(--info-text); padding: 8px 12px; border-radius: var(--radius); margin: 12px 0; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* 引導：股票的資金來源表格（設計文件 2026-10-25-onboarding 3.4；樣稿 onboarding.html stock） */
+.src-box { margin: 4px 0 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); overflow-x: auto; }
+.src-table { font-size: 0.9em; margin: 0; }
+.src-table th, .src-table td { padding: 6px 8px; }
+.src-table select { padding: 4px 6px; margin: 0; }
+.src-table input[type=text] { width: 110px; padding: 4px 6px; margin: 0; }
+.src-actions { display: flex; gap: 16px; margin-top: 6px; }
+/* 引導的二選一（借款「有／沒有，略過」，樣稿 onboarding.html） */
+.choice { display: grid; gap: 8px; margin: 12px 0; }
+.choice form { margin: 0; }
+.choice button { width: 100%; text-align: left; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); cursor: pointer; font: inherit; }
+.choice button:hover { border-color: var(--primary); background: var(--info-bg); }
+.choice small { display: block; color: var(--muted); }
+.step-fields { border: 0; padding: 0; margin: 0; min-width: 0; }

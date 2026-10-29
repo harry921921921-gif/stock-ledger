@@ -45,12 +45,16 @@ public class CashAccountService {
 		return findMine(id);
 	}
 
+	/** 只檢查、不存（引導的「預覽」，設計文件 2026-10-25-onboarding 7a-1）：和 {@link #create} 走同一段檢查，訊息一樣。 */
+	@Transactional(readOnly = true)
+	public void validate(CashAccountForm form) {
+		checkNewName(currentUser.id(), form);
+	}
+
 	@Transactional
 	public CashAccount create(CashAccountForm form) {
 		Long userId = currentUser.id();
-		if (accounts.existsByUserIdAndName(userId, CashAccount.normalizeName(form.name()))) {
-			throw new IllegalArgumentException(DUPLICATE_NAME);
-		}
+		checkNewName(userId, form);
 		try {
 			return accounts.saveAndFlush(CashAccount.create(userId, form.name(), form.type(), form.institution(),
 					LocalDateTime.now(clock)));
@@ -60,12 +64,16 @@ public class CashAccountService {
 		}
 	}
 
+	/** 修改前只檢查、不存（引導修改已儲存帳戶的預覽）：和 {@link #update} 走同一段檢查；別人的帳戶 404。 */
+	@Transactional(readOnly = true)
+	public void validate(Long id, CashAccountForm form) {
+		checkOtherName(findMine(id), form);
+	}
+
 	@Transactional
 	public CashAccount update(Long id, CashAccountForm form) {
 		CashAccount account = findMine(id);
-		if (accounts.existsByUserIdAndNameAndIdNot(account.getUserId(), CashAccount.normalizeName(form.name()), id)) {
-			throw new IllegalArgumentException(DUPLICATE_NAME);
-		}
+		checkOtherName(account, form);
 		account.change(form.name(), form.type(), form.institution());
 		try {
 			accounts.flush();
@@ -89,6 +97,21 @@ public class CashAccountService {
 			return new IllegalArgumentException(DUPLICATE_NAME, ex);
 		}
 		return ex;
+	}
+
+	/** 新增時名稱不能和自己的其他帳戶重複。 */
+	private void checkNewName(Long userId, CashAccountForm form) {
+		if (accounts.existsByUserIdAndName(userId, CashAccount.normalizeName(form.name()))) {
+			throw new IllegalArgumentException(DUPLICATE_NAME);
+		}
+	}
+
+	/** 修改時名稱不能和自己的「其他」帳戶重複（自己原本的名稱可以留著）。 */
+	private void checkOtherName(CashAccount account, CashAccountForm form) {
+		if (accounts.existsByUserIdAndNameAndIdNot(account.getUserId(), CashAccount.normalizeName(form.name()),
+				account.getId())) {
+			throw new IllegalArgumentException(DUPLICATE_NAME);
+		}
 	}
 
 	private CashAccount findMine(Long id) {

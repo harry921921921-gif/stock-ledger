@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>借款 · 第一次使用 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+	<script th:src="@{/js/onboarding.js}" defer></script>
+</head>
+<body>
+<!--
+	第一次使用引導 2 借款（設計文件 2026-10-25-onboarding 3、3.2、4、7a；樣稿 onboarding.html loan）。做法和帳戶這一步一樣：
+	整頁只有一個表單 step-form，所有按鈕都用 formaction 送出它；editingId 是正在修改的已儲存借款；confirm 是確認區塊；
+	locked 時欄位鎖住，按鈕改用預覽時收起來的那份內容。
+	欄位和資金來源頁的新增借款共用 fragments/loan-fields（依還款方式顯示欄位）；不放擔保股票（記完股票再設定）。
+	shortfall：修改時借款改小、不夠付已經用它買的股票，列出要調整的交易（fragments/shortfall），按「確定修改」才存；
+	「取消」送到 go?to=loans，把剛才的內容放回修改表單。
+-->
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('')}"></aside>
+	<main class="content">
+		<div class="wizard">
+			<ol th:replace="~{onboarding/layout :: stepper(${stepNumber})}"></ol>
+			<p th:replace="~{onboarding/layout :: back(${goUrl}, 'accounts')}"></p>
+			<h1 tabindex="-1" th:autofocus="${!confirm and !shortfall}">記你的借款</h1>
+			<p class="muted">一筆一筆記：填好一筆按「儲存這筆借款」，確認後表單會清空，可以再記下一筆。全部記完按「下一步」。</p>
+			<p class="alert alert-info" th:if="${notice != null}" th:text="${notice}">確認畫面已過期，請再按一次儲存</p>
+
+			<div class="added" th:if="${!#lists.isEmpty(saved)}">
+				<strong>已儲存的借款</strong>
+				<ul>
+					<li th:each="row : ${saved}" th:classappend="${row.id == editingId} ? 'editing'">
+						<span th:text="${row.label}">玉山質押（到期一次還本金＋利息、股票質押）</span>
+						<span th:if="${row.id == editingId}" class="muted">（修改中）</span>
+						<button th:unless="${row.id == editingId}" type="submit" form="step-form" class="btn btn-link"
+							th:formaction="@{/welcome/loans/{id}/edit(id=${row.id})}" formnovalidate>修改</button>
+					</li>
+				</ul>
+			</div>
+
+			<form id="step-form" class="form-card" method="post" th:action="@{${previewUrl}}" th:object="${form}">
+				<p class="edit-note" th:if="${editingId != null}">正在修改已儲存的資料；改好按「儲存修改」。剛才打到一半的內容會保留，改完自動放回來。</p>
+				<input type="hidden" th:if="${editingId != null}" name="editing" th:value="${editingId}">
+
+				<fieldset class="step-fields" th:disabled="${locked}">
+					<label for="name">名稱</label>
+					<input id="name" type="text" th:field="*{name}" maxlength="50" placeholder="例如 玉山質押">
+
+					<label for="bank">銀行</label>
+					<input id="bank" type="text" th:field="*{bank}" maxlength="50" placeholder="例如 玉山銀行">
+
+					<th:block th:replace="~{fragments/loan-fields :: newLoanFields(true)}"></th:block>
+				</fieldset>
+
+				<div class="form-actions" th:if="${!confirm and !shortfall}">
+					<button type="submit" class="btn btn-secondary"
+						th:text="${editingId == null} ? '儲存這筆借款' : '儲存修改'">儲存這筆借款</button>
+					<button th:if="${editingId != null}" type="submit" class="btn btn-link"
+						th:formaction="@{/welcome/loans/cancel-edit}" formnovalidate>取消修改</button>
+				</div>
+			</form>
+
+			<th:block th:if="${confirm}">
+				<section th:replace="~{onboarding/confirm :: confirm(${what}, ${rows}, ${warnings}, ${errors}, ${saveUrl}, ${backUrl}, ${formToken})}"></section>
+			</th:block>
+
+			<section class="confirm-box" th:if="${shortfall}" role="alertdialog" aria-labelledby="shortfall-title">
+				<h2 id="shortfall-title">確認修改借款</h2>
+				<th:block th:replace="~{fragments/shortfall :: shortfallCuts(${shortfallMessage}, ${cuts})}"></th:block>
+				<input type="hidden" form="step-form" name="formToken" th:value="${formToken}">
+				<div class="dialog-actions">
+					<button type="submit" form="step-form" class="btn btn-link" th:formaction="@{/welcome/loans/go(to='loans')}"
+						formnovalidate autofocus>取消</button>
+					<button type="submit" form="step-form" class="btn btn-primary" th:formaction="@{${shortfallUrl}}">確定修改</button>
+				</div>
+			</section>
+
+			<div class="step-actions">
+				<button th:replace="~{onboarding/layout :: leave(${goUrl})}"></button>
+				<button th:replace="~{onboarding/layout :: next(${goUrl}, 'stocks', '借款記完了，下一步：股票 →', false)}"></button>
+			</div>
+		</div>
+	</main>
+</div>
+</body>
+</html>

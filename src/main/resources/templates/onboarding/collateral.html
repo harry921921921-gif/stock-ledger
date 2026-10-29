@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>擔保股票 · 第一次使用 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+	<script th:src="@{/js/onboarding.js}" defer></script>
+</head>
+<body>
+<!--
+	第一次使用引導 4 擔保（設計文件 2026-10-25-onboarding 3、4、7a-4；樣稿 onboarding.html collat）。每筆質押一頁。
+	做法和其他步驟一樣：整頁只有一個表單 step-form，按鈕都用 formaction 送出它；confirm 是確認區塊，locked 時欄位鎖住。
+	page（CollateralPage）：標題的借款名稱、持股清單、目前生效的門檻、「已儲存」清單，都由 Service 算好。
+	表單第 i 列是 collateral[i]：勾選框的值是股票 id（沒勾就不送），股數欄一直送。
+	草稿和持股清單對不上（例如另一個分頁剛改了股票）時，那一列放預設值（沒勾、全部持股）。
+-->
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('')}"></aside>
+	<main class="content">
+		<div class="wizard">
+			<ol th:replace="~{onboarding/layout :: stepper(${stepNumber})}"></ol>
+			<p th:replace="~{onboarding/layout :: back(${goUrl}, 'back')}"></p>
+			<h1 tabindex="-1" th:autofocus="${!confirm}" th:text="|「${page.loanName()}」押了哪些股票？|">「玉山質押」押了哪些股票？</h1>
+			<p class="muted">勾選拿去質押的持股，只押一部分就把股數改小。系統用這些股票的收盤價算維持率。</p>
+			<p class="alert alert-info" th:if="${notice != null}" th:text="${notice}">確認畫面已過期，請再按一次儲存</p>
+
+			<div class="added" th:if="${!#lists.isEmpty(page.saved())}">
+				<strong>已儲存</strong>
+				<ul>
+					<li th:each="label : ${page.saved()}" th:text="${label}">0050 元大台灣50　3,000 股</li>
+				</ul>
+			</div>
+
+			<form id="step-form" class="form-card" method="post" th:action="@{${previewUrl}}" th:object="${form}">
+				<fieldset class="step-fields" th:disabled="${locked}">
+					<table class="table collateral-table">
+						<thead><tr><th></th><th>股票</th><th class="num">擔保股數</th></tr></thead>
+						<tbody>
+						<tr th:if="${#lists.isEmpty(page.rows())}"><td colspan="3" class="muted">還沒有持股，可以按「之後再設定」。</td></tr>
+						<tr th:each="r, it : ${page.rows()}"
+							th:with="pick=${it.index < #lists.size(form.collateral()) ? form.collateral()[it.index] : null}">
+							<td><input type="checkbox" th:name="|collateral[${it.index}].stockId|" th:value="${r.stockId()}"
+									th:checked="${pick != null and pick.stockId() == r.stockId()}"
+									th:attr="aria-label=|拿 ${r.label()} 去擔保|"></td>
+							<td th:title="${r.label()}"><span th:text="${r.label()}">0050 元大台灣50</span><br>
+								<small class="muted" th:text="|持有 ${#numbers.formatInteger(r.held(), 1, 'COMMA')}|">持有 5,000</small></td>
+							<td class="num">
+								<input th:if="${pick != null}" type="text" inputmode="numeric"
+									th:field="*{collateral[__${it.index}__].shares}" th:attr="aria-label=|${r.label()} 的擔保股數|">
+								<input th:if="${pick == null}" type="text" inputmode="numeric" th:name="|collateral[${it.index}].shares|"
+									th:value="${r.available()}" th:attr="aria-label=|${r.label()} 的擔保股數|">
+							</td>
+						</tr>
+						</tbody>
+					</table>
+					<div class="two">
+						<div><label for="warnPercent">維持率提醒線（%）</label>
+							<input id="warnPercent" type="text" inputmode="decimal" th:field="*{warnPercent}"></div>
+						<div><label for="callPercent">追繳線（%）</label>
+							<input id="callPercent" type="text" inputmode="decimal" th:field="*{callPercent}"></div>
+					</div>
+					<p class="hint muted">不知道就用預設值，之後可以在資金來源頁改。</p>
+				</fieldset>
+
+				<div class="form-actions" th:if="${!confirm}">
+					<button type="submit" class="btn btn-secondary">儲存擔保股票</button>
+				</div>
+			</form>
+
+			<th:block th:if="${confirm}">
+				<section th:replace="~{onboarding/confirm :: confirm(${what}, ${rows}, ${warnings}, ${errors}, ${saveUrl}, ${backUrl}, ${formToken})}"></section>
+			</th:block>
+
+			<div class="step-actions">
+				<button th:replace="~{onboarding/layout :: leave(${goUrl})}"></button>
+				<span>
+					<button type="submit" form="step-form" class="btn btn-link" th:formaction="@{${goUrl}(to='later')}"
+						formnovalidate>之後再設定</button>
+					<button th:replace="~{onboarding/layout :: next(${goUrl}, 'next', ${page.nextLabel()}, false)}"></button>
+				</span>
+			</div>
+		</div>
+	</main>
+</div>
+</body>
+</html>

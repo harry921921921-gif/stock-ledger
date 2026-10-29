@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>完成了 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('')}"></aside>
+	<main class="content">
+		<div class="wizard">
+			<ol th:replace="~{onboarding/layout :: stepper(${stepNumber})}"></ol>
+			<p th:replace="~{onboarding/layout :: backLink(${backUrl})}"></p>
+			<h1 tabindex="-1" autofocus>完成了</h1>
+			<p class="muted">之後的每月扣款、利息會自動記帳；股價每天晚上更新。要補資料或修改，到各頁面就可以。</p>
+			<div class="summary">
+				<div class="stat-card"><div class="stat-label">帳戶</div><div class="stat-value" th:text="${summary.accounts}">0</div></div>
+				<div class="stat-card"><div class="stat-label">借款</div><div class="stat-value" th:text="${summary.loans}">0</div></div>
+				<div class="stat-card"><div class="stat-label">股票</div><div class="stat-value" th:text="${summary.stocks}">0</div></div>
+			</div>
+			<form th:action="@{/welcome/finish}" method="post" class="form-actions">
+				<button type="submit" class="btn btn-primary">到總覽看看</button>
+			</form>
+		</div>
+	</main>
+</div>
+</body>
+</html>

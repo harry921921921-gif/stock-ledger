@@ -9,7 +9,8 @@ import java.util.List;
  * @param totalDebt           總負債：所有借款今天的剩餘本金
  * @param weightedRatePercent 加權平均利率（%，到 0.01）；沒有未還清的借款時為 null
  * @param monthInterest       本月利息（應計，整數元）
+ * @param notices             標題下方的提醒
  */
 public record FundingView(BigDecimal totalDebt, BigDecimal weightedRatePercent, BigDecimal monthInterest,
-		List<LoanCard> loans) {
+		List<LoanCard> loans, List<PageNotice> notices) {
 }

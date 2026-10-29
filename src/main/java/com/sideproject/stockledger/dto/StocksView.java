@@ -20,5 +20,5 @@ import java.util.List;
 public record StocksView(BigDecimal marketValue, BigDecimal cost, BigDecimal unrealized, BigDecimal returnPercent,
 		BigDecimal dividends, BigDecimal annualDividend, LocalDate priceDate, boolean stockListEmpty,
 		List<HoldingRow> holdings, List<SaleRow> recentSales, List<TradeRow> trades,
-		List<DividendSuggestion> dividendSuggestions, boolean admin) {
+		List<DividendSuggestion> dividendSuggestions, boolean admin, List<PageNotice> notices) {
 }
