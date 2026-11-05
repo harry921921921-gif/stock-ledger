@@ -37,6 +37,7 @@
 				<span class="stat-value" th:text="${@money.plain(v.stockValue())}">0</span>
 				<span class="stat-note" th:if="${v.stockValue().signum() == 0}">尚未有持股</span>
 				<span class="stat-note" th:unless="${v.stockValue().signum() == 0}"><a th:href="@{/stocks}">看持股</a>（最新收盤價；還沒有股價的用成本）</span>
+				<span class="stat-note" th:if="${v.pledgedValue().signum() > 0}" th:text="|其中質押中的股票 ${@money.plain(v.pledgedValue())}|">其中質押中的股票 60,000</span>
 			</div>
 			<div class="stat-card">
 				<span class="stat-label">現金</span>

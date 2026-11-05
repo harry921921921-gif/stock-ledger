@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>還款／到期處理 · 台股資產帳本</title>
+	<link rel="stylesheet" th:href="@{/css/app.css}">
+	<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+<!--/*
+	質押借款的還款／到期處理（設計文件 2026-11-04-pledged-stocks 6a、DR-054）。勾選一種或多種，按「預覽」由伺服器整個試一次，
+	列出確認內容；按「確認儲存」只存確認畫面上的那份（session 裡收起來的），全部在同一個交易。數字都由 LoanService 算好。
+*/-->
+<div class="app">
+	<aside th:replace="~{fragments/layout :: sidebar('funding')}"></aside>
+	<main class="content">
+		<p class="breadcrumb"><a th:href="@{/funding}">資金來源</a></p>
+		<h1 th:text="|還款／到期處理：${loan.name}|">還款／到期處理：玉山質押</h1>
+		<p class="muted">怎麼還的就勾哪幾項：現金還多少、賣了哪些股票，或是做了展延。存檔前會先列出確認內容。</p>
+
+		<section class="confirm-box" th:if="${preview != null}" role="alertdialog" aria-labelledby="confirm-title">
+			<h2 id="confirm-title">確認要儲存這次還款／到期處理嗎？</h2>
+			<p class="muted">請檢查下面的內容是否正確，沒問題再按「確認儲存」。改了下面表單的內容要重新按「預覽」。</p>
+			<dl class="confirm-list">
+				<th:block th:each="row : ${preview.rows()}">
+					<dt th:text="${row.label}">賣出 00646 元大S&amp;P500</dt>
+					<dd th:text="${row.value}">1,000 股 × 76</dd>
+				</th:block>
+				<dd th:each="w : ${preview.warnings()}" class="confirm-warn" th:text="${w}">這筆借款還清了，但這次沒有記利息</dd>
+			</dl>
+			<form method="post" th:action="@{/funding/{id}/settle(id=${loan.id})}">
+				<input type="hidden" name="formToken" th:value="${formToken}">
+				<div class="dialog-actions">
+					<a class="btn btn-link" href="#settle-form" autofocus>回去修改</a>
+					<button type="submit" class="btn btn-primary" data-busy-text="儲存中…">確認儲存</button>
+				</div>
+			</form>
+		</section>
+
+		<form id="settle-form" class="form-card" method="post" th:object="${form}"
+				th:action="@{/funding/{id}/settle/preview(id=${loan.id})}">
+			<p class="alert alert-error" th:if="${#fields.hasErrors('*')}" th:each="e : ${#fields.errors('*')}" th:text="${e}">錯誤訊息</p>
+
+			<label for="date">日期（現金還款、賣出、賣股還款都記在這天）</label>
+			<input id="date" type="date" th:field="*{date}">
+
+			<fieldset class="collateral-box">
+				<label class="checkbox-line"><input type="checkbox" name="cash" value="true" th:checked="*{cash}"> 現金還款</label>
+				<label for="accountId">扣款帳戶</label>
+				<select id="accountId" th:field="*{accountId}">
+					<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">土銀帳戶</option>
+				</select>
+				<label for="principal">還本金額</label>
+				<input id="principal" type="text" inputmode="numeric" th:field="*{principal}" placeholder="整數元">
+				<th:block th:if="${loan.repaymentMethod.name() == 'BULLET'}">
+					<label for="interest">同時付的利息</label>
+					<input id="interest" type="text" inputmode="numeric" th:field="*{interest}" placeholder="整數元">
+				</th:block>
+				<p class="muted">系統帶入的是剩餘本金<th:block th:if="${loan.repaymentMethod.name() == 'BULLET'}">與到今天的應計利息</th:block>，請照銀行實際的金額改。</p>
+			</fieldset>
+
+			<fieldset class="collateral-box">
+				<label class="checkbox-line"><input type="checkbox" name="sell" value="true" th:checked="*{sell}"> 賣股票還款</label>
+				<label for="settlementAccountId">入帳的交割戶（賣得的錢同一天從這裡還本）</label>
+				<select id="settlementAccountId" th:field="*{settlementAccountId}">
+					<option th:each="a : ${myAccounts}" th:value="${a.id}" th:text="${a.name}">玉山交割戶</option>
+				</select>
+				<p class="muted" th:if="${#lists.isEmpty(form.sales())}">這筆借款沒有擔保股票。</p>
+				<div class="table-scroll" th:unless="${#lists.isEmpty(form.sales())}">
+					<table class="table collateral-table">
+						<thead>
+							<tr><th>擔保股票</th><th>擔保股數</th><th>賣出股數</th><th>賣價</th><th>手續費</th><th>證交稅</th><th>實際入帳</th></tr>
+						</thead>
+						<tbody>
+							<tr th:each="s, st : ${form.sales()}" th:with="p=${pledgedStocks[s.stockId()]}">
+								<td>
+									<input type="hidden" th:name="|sales[${st.index}].stockId|" th:value="${s.stockId()}">
+									<span th:text="${p != null} ? ${p.label()} : '（已不是擔保股票）'">00646 元大S&amp;P500</span>
+								</td>
+								<td th:text="${p != null} ? ${#numbers.formatInteger(p.shares(), 1, 'COMMA')} : '—'">3,000</td>
+								<td><input type="number" min="0" th:name="|sales[${st.index}].shares|" th:value="${s.shares()}"
+										placeholder="不賣留空" th:attr="aria-label=|${p != null ? p.code() : ''} 賣出股數|"></td>
+								<td><input type="text" inputmode="decimal" th:name="|sales[${st.index}].price|" th:value="${s.price()}"
+										th:attr="aria-label=|${p != null ? p.code() : ''} 賣價|"></td>
+								<td><input type="text" inputmode="numeric" th:name="|sales[${st.index}].fee|" th:value="${s.fee()}"
+										placeholder="自動算" th:attr="aria-label=|${p != null ? p.code() : ''} 手續費|"></td>
+								<td><input type="text" inputmode="numeric" th:name="|sales[${st.index}].tax|" th:value="${s.tax()}"
+										placeholder="自動算" th:attr="aria-label=|${p != null ? p.code() : ''} 證交稅|"></td>
+								<td><input type="text" inputmode="numeric" th:name="|sales[${st.index}].amount|" th:value="${s.amount()}"
+										placeholder="自動算" th:attr="aria-label=|${p != null ? p.code() : ''} 實際入帳|"></td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+				<p class="muted">手續費、證交稅、實際入帳空白時照股票頁的賣出規則自動算，預覽會列出算出來的數字。</p>
+				<label for="saleRepay">賣股還款金額</label>
+				<input id="saleRepay" type="text" inputmode="numeric" th:field="*{saleRepay}" placeholder="空白＝賣出實際入帳合計">
+			</fieldset>
+
+			<fieldset class="collateral-box">
+				<label class="checkbox-line"><input type="checkbox" name="extend" value="true" th:checked="*{extend}"> 展延</label>
+				<label for="newDueDate">新的到期日</label>
+				<input id="newDueDate" type="date" th:field="*{newDueDate}">
+				<p class="muted" th:text="|原到期日：${loan.dueDate != null ? loan.dueDate : '（沒填）'}。展延時借款繼續、擔保股票維持；還清時不能同時展延。|">原到期日：2027-07-28。</p>
+			</fieldset>
+
+			<div class="form-actions">
+				<button type="submit" class="btn btn-primary" data-busy-text="檢查中…">預覽</button>
+				<a class="btn btn-link" th:href="@{/funding}">取消</a>
+			</div>
+		</form>
+	</main>
+</div>
+</body>
+</html>

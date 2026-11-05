@@ -25,6 +25,7 @@ import com.sideproject.stockledger.TestcontainersConfig;
 import com.sideproject.stockledger.dto.CashAccountForm;
 import com.sideproject.stockledger.dto.LoanForm;
 import com.sideproject.stockledger.dto.PageNotice;
+import com.sideproject.stockledger.dto.PrincipalForm;
 import com.sideproject.stockledger.dto.TradeForm;
 import com.sideproject.stockledger.entity.AppUser;
 import com.sideproject.stockledger.entity.CashAccountType;
@@ -142,6 +143,17 @@ class NoticeServiceTest {
 		Loan pledge = pledge("玉山質押");
 
 		loans.voidLoan(pledge.getId(), "輸入錯誤");
+
+		assertThat(notices.stockAndFundingNotices()).isEmpty();
+	}
+
+	/** 已還清的質押不是質押中，不提醒設定擔保股票（設計文件 2026-11-04-pledged-stocks 第 6 節）。 */
+	@Test
+	void noticeSkipsRepaidPledge() {
+		Loan pledge = pledge("玉山質押");
+		assertThat(notices.stockAndFundingNotices()).hasSize(1);
+
+		loans.repay(pledge.getId(), new PrincipalForm(today, new BigDecimal("400000"), settlement));
 
 		assertThat(notices.stockAndFundingNotices()).isEmpty();
 	}

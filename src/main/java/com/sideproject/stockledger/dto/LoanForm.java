@@ -28,6 +28,7 @@ import com.sideproject.stockledger.entity.RepaymentMethod;
  * @param collateral        股票質押：勾選的擔保持股
  * @param warnPercent       股票質押：維持率提醒線（%，選填；沒填用 150）
  * @param callPercent       股票質押：維持率追繳線（%，選填；沒填用 130）
+ * @param newPledges        股票質押：還沒記在系統裡的質押股票；存檔時記成期初持股並設成擔保（設計文件 2026-11-04-pledged-stocks 6）
  */
 public record LoanForm(
 		String name,
@@ -49,10 +50,23 @@ public record LoanForm(
 		BigDecimal fee,
 		List<CollateralPick> collateral,
 		BigDecimal warnPercent,
-		BigDecimal callPercent) {
+		BigDecimal callPercent,
+		List<NewPledgeLine> newPledges) {
 
 	public LoanForm {
 		collateral = collateral == null ? List.of() : collateral;
+		newPledges = newPledges == null ? List.of() : newPledges;
+	}
+
+	/** 沒有「還沒記在系統裡的質押股票」的寫法（2026-11-04 以前的欄位）。 */
+	public LoanForm(String name, LoanType type, String bank, LoanOrigin origin, BigDecimal originalAmount,
+			LocalDate startDate, BigDecimal startPrincipal, BigDecimal annualRatePercent, Long disburseAccountId,
+			Long payAccountId, Integer payDay, Integer remainingPeriods, YearMonth firstPeriod, LocalDate dueDate,
+			RepaymentMethod repaymentMethod, BigDecimal monthlyPayment, BigDecimal fee, List<CollateralPick> collateral,
+			BigDecimal warnPercent, BigDecimal callPercent) {
+		this(name, type, bank, origin, originalAmount, startDate, startPrincipal, annualRatePercent, disburseAccountId,
+				payAccountId, payDay, remainingPeriods, firstPeriod, dueDate, repaymentMethod, monthlyPayment, fee,
+				collateral, warnPercent, callPercent, List.of());
 	}
 
 	/** V11 以前的欄位（沒有還款方式、扣款金額、開辦費、擔保股票）。 */

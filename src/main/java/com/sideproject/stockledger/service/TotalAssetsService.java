@@ -1,6 +1,7 @@
 package com.sideproject.stockledger.service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -23,6 +24,7 @@ import com.sideproject.stockledger.calculator.CashLedgerCalculator;
 import com.sideproject.stockledger.calculator.MonthlyCashChange;
 import com.sideproject.stockledger.calculator.MonthlyNetWorthChange;
 import com.sideproject.stockledger.calculator.ShareCalculator;
+import com.sideproject.stockledger.calculator.StockMetricsCalculator;
 import com.sideproject.stockledger.dto.AccountCard;
 import com.sideproject.stockledger.dto.AllocationRow;
 import com.sideproject.stockledger.dto.Direction;
@@ -55,11 +57,14 @@ public class TotalAssetsService {
 	private final RecurringItemService recurringItems;
 	private final LoanService loans;
 	private final TradeService trades;
+	private final PledgeStatusService pledgeStatus;
 	private final MoneyFormatter money;
 	private final Clock clock;
 
 	public TotalAssetsService(CashAccountService accounts, CashMovementService movements,
-			RecurringItemService recurringItems, LoanService loans, TradeService trades, MoneyFormatter money, Clock clock) {
+			RecurringItemService recurringItems, LoanService loans, TradeService trades, PledgeStatusService pledgeStatus, MoneyFormatter money,
+			Clock clock) {
+		this.pledgeStatus = pledgeStatus;
 		this.trades = trades;
 		this.loans = loans;
 		this.accounts = accounts;
@@ -98,8 +103,18 @@ public class TotalAssetsService {
 		List<MovementRow> recent = rows(movements.listAll().stream().filter(m -> !m.isVoided()).limit(RECENT_COUNT)
 			.toList(), myAccounts, ledger);
 
-		return new TotalAssetsView(total, stockValue, cash, myAccounts.size(), share(cash, total), monthChange,
+		return new TotalAssetsView(total, stockValue, pledgedValue(holdings), cash, myAccounts.size(), share(cash, total), monthChange,
 				allocation, largest, cards, recent, recurringItems.overdueReminders());
+	}
+
+	/** 質押中的股票市值：Σ 質押中擔保股數 × 最新收盤價；沒有收盤價的那檔不算（只是另外標示，不影響總資產）。 */
+	private BigDecimal pledgedValue(List<TradeService.HoldingValue> holdings) {
+		Map<Long, Long> pledged = pledgeStatus.pledgedSharesByStock();
+		return holdings.stream()
+			.filter(h -> h.price() != null && pledged.containsKey(h.stockId()))
+			.map(h -> StockMetricsCalculator.marketValue(pledged.get(h.stockId()), h.price()))
+			.reduce(BigDecimal.ZERO, BigDecimal::add)
+			.setScale(0, RoundingMode.HALF_UP);
 	}
 
 	/** 某個月的淨資產變動（總資產頁、總覽共用）：現金部分＋應計利息＋股價漲跌與賣出損益。 */

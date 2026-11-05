@@ -30,6 +30,9 @@ public interface StockPriceRepository extends Repository<StockPrice, Long> {
 			+ "from StockPrice p2 where p2.stockId = p.stockId and p2.tradeDate > :after)")
 	List<StockPrice> findEarliestAfter(@Param("ids") Collection<Long> ids, @Param("after") LocalDate after);
 
+	@Query("select p from StockPrice p where p.stockId = :stockId and p.tradeDate = :date")
+	Optional<StockPrice> findByStockIdAndTradeDate(@Param("stockId") Long stockId, @Param("date") LocalDate date);
+
 	@Query("select max(p.tradeDate) from StockPrice p")
 	Optional<LocalDate> findLatestTradeDate();
 

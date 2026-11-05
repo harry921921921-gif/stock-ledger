@@ -2,7 +2,9 @@ package com.sideproject.stockledger.service;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -18,6 +20,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.sideproject.stockledger.entity.Dividend;
@@ -47,6 +50,7 @@ public class MarketDataService {
 	private final DividendRepository dividends;
 	private final PriceUpdateLogRepository logs;
 	private final TransactionTemplate transaction;
+	private final TransactionTemplate newTransaction;
 	private final Clock clock;
 	private final boolean enabled;
 
@@ -59,6 +63,8 @@ public class MarketDataService {
 		this.dividends = dividends;
 		this.logs = logs;
 		this.transaction = transaction;
+		this.newTransaction = new TransactionTemplate(transaction.getTransactionManager());
+		this.newTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
 		this.clock = clock;
 		this.enabled = enabled;
 	}
@@ -152,6 +158,80 @@ public class MarketDataService {
 		}
 		catch (RuntimeException ex) {
 			return fail(PriceUpdateLog.DIVIDENDS, now, ex);
+		}
+	}
+
+	/**
+	 * 某檔股票某天的收盤價：先查本機；沒有就抓那個月、把當月每天都存起來（已有的不覆蓋）。
+	 * 那天沒資料（假日）或抓不到都回空，抓不到會寫失敗紀錄。
+	 * 不加 @Transactional：網路請求不放在資料庫交易裡；寫入與紀錄各用獨立的新交易（REQUIRES_NEW），
+	 * 失敗不會讓呼叫端的交易變成只能 rollback。
+	 */
+	public Optional<BigDecimal> closeOn(String stockCode, LocalDate date) {
+		return closeOn(stockCode, date, new HashSet<>());
+	}
+
+	/**
+	 * 同上，但呼叫端一次要查很多天時傳同一個 fetchedMonths（「代號|年月」）：這個月已經抓過了，
+	 * 本機又沒有那天的價格（假日或沒資料），就不再重抓，直接回空。
+	 */
+	public Optional<BigDecimal> closeOn(String stockCode, LocalDate date, Set<String> fetchedMonths) {
+		Optional<Stock> stock = stocks.findByCode(stockCode);
+		if (stock.isEmpty()) {
+			return Optional.empty();
+		}
+		Long stockId = stock.get().getId();
+		Optional<StockPrice> stored = prices.findByStockIdAndTradeDate(stockId, date);
+		if (stored.isPresent()) {
+			return Optional.of(stored.get().getClosePrice());
+		}
+		if (!fetchedMonths.add(stockCode + "|" + YearMonth.from(date))) {
+			return Optional.empty();
+		}
+		LocalDateTime now = LocalDateTime.now(clock);
+		List<TwseParser.DailyQuote> quotes;
+		try {
+			quotes = TwseParser.parseMonthlyQuotes(stockCode, twse.monthlyQuotesJson(stockCode, YearMonth.from(date)));
+		}
+		catch (RuntimeException ex) {
+			historyLog(now, date, 0, ex);
+			return Optional.empty();
+		}
+		BigDecimal found = quotes.stream()
+			.filter(q -> q.date().equals(date) && q.close().signum() > 0)
+			.map(TwseParser.DailyQuote::close)
+			.findFirst()
+			.orElse(null);
+		try {
+			Integer count = newTransaction.execute(status -> {
+				int saved = 0;
+				for (TwseParser.DailyQuote q : quotes) {
+					if (q.close().signum() > 0 && prices.findByStockIdAndTradeDate(stockId, q.date()).isEmpty()) {
+						prices.save(StockPrice.of(stockId, q.date(), q.close()));
+						saved++;
+					}
+				}
+				return saved;
+			});
+			newTransaction.executeWithoutResult(status -> logs.save(PriceUpdateLog.of(now, PriceUpdateLog.HISTORY, date,
+					count == null ? 0 : count, OK)));
+		}
+		catch (RuntimeException ex) {
+			// 存不進去（例如和排程同時寫入）：抓到的價格仍然可用，只記失敗紀錄
+			historyLog(now, date, 0, ex);
+		}
+		return Optional.ofNullable(found);
+	}
+
+	private void historyLog(LocalDateTime now, LocalDate date, int count, RuntimeException ex) {
+		log.warn("證交所歷史收盤價抓取失敗：{}", date, ex);
+		String reason = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
+		try {
+			newTransaction.executeWithoutResult(
+					status -> logs.save(PriceUpdateLog.of(now, PriceUpdateLog.HISTORY, date, count, "失敗：" + reason)));
+		}
+		catch (RuntimeException logEx) {
+			log.warn("歷史收盤價失敗紀錄也寫不進去", logEx);
 		}
 	}
 

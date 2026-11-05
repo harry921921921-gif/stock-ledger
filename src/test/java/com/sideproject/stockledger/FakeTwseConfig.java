@@ -1,5 +1,7 @@
 package com.sideproject.stockledger;
 
+import java.time.YearMonth;
+
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -28,6 +30,18 @@ public class FakeTwseConfig {
 				throw failure;
 			}
 			return daily;
+		}
+
+		public String monthly = "{}";
+		public int monthlyCalls;
+
+		@Override
+		public String monthlyQuotesJson(String code, YearMonth month) {
+			monthlyCalls++;
+			if (failure != null) {
+				throw failure;
+			}
+			return monthly;
 		}
 
 		@Override

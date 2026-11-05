@@ -19,6 +19,33 @@ class TwseParserTest {
 			]
 			""";
 
+	static final String MONTHLY = """
+			{"stat":"OK","date":"20260701","title":"115年07月 00646 元大S&P500       各日成交資訊","fields":["日期","成交股數","成交金額","開盤價","最高價","最低價","收盤價","漲跌價差","成交筆數","註記"],"data":[["115/07/27","2,555,126","194,255,606","76.00","76.20","75.80","76.20","+0.70","3,844",""],["115/07/28","11,632,330","875,670,735","75.40","75.50","75.15","75.15","-1.05","4,829",""],["115/07/29","0","0","--","--","--","--","0","0",""]]}
+			""";
+
+	@Test
+	void parsesMonthlyQuotes() {
+		List<TwseParser.DailyQuote> quotes = TwseParser.parseMonthlyQuotes("00646", MONTHLY);
+
+		assertThat(quotes).hasSize(2);
+		assertThat(quotes.get(1).date()).isEqualTo(LocalDate.of(2026, 7, 28));
+		assertThat(quotes.get(1).close()).isEqualByComparingTo("75.15");
+		assertThat(quotes.get(1).code()).isEqualTo("00646");
+	}
+
+	@Test
+	void monthlyNotOkIsEmpty() {
+		assertThat(TwseParser.parseMonthlyQuotes("0000", "{\"stat\":\"很抱歉，沒有符合條件的資料!\"}")).isEmpty();
+	}
+
+	@Test
+	void monthlySkipsMalformedDateRow() {
+		String json = "{\"stat\":\"OK\",\"data\":[[\"abc\",\"1\",\"1\",\"1\",\"1\",\"1\",\"9.00\",\"0\",\"1\",\"\"],"
+				+ "[\"115/07/28\",\"1\",\"1\",\"1\",\"1\",\"1\",\"75.15\",\"0\",\"1\",\"\"]]}";
+
+		assertThat(TwseParser.parseMonthlyQuotes("0056", json)).hasSize(1);
+	}
+
 	static final String DIVIDENDS = """
 			[
 			{"Date":"1151022","Code":"0056","Name":"元大高股息","Exdividend":"息","StockDividendRatio":"","SubscriptionRatio":"","SubscriptionPricePerShare":"","CashDividend":"1.720000","SharesOffered":"","SharesEmpOwner":"","SharesholderOwner":"","StockHoldingRatio":""},

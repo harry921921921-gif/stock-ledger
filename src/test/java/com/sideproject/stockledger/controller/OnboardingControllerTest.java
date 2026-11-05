@@ -35,6 +35,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import com.sideproject.stockledger.FakeTwseConfig;
 import com.sideproject.stockledger.TestcontainersConfig;
 import com.sideproject.stockledger.dto.AllocationLine;
 import com.sideproject.stockledger.dto.CashAccountForm;
@@ -63,7 +64,7 @@ import com.sideproject.stockledger.service.TradeService;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@Import(TestcontainersConfig.class)
+@Import({ TestcontainersConfig.class, FakeTwseConfig.class })
 class OnboardingControllerTest {
 
 	private static final String ACCOUNT_HINT = "至少要儲存一個證券交割戶，才能往下走。";
@@ -96,6 +97,9 @@ class OnboardingControllerTest {
 
 	@Autowired
 	private AppUserDetailsService userDetails;
+
+	@Autowired
+	private FakeTwseConfig.FakeTwseClient twse;
 
 	@BeforeEach
 	void setUp() {
@@ -551,7 +555,8 @@ class OnboardingControllerTest {
 			.andExpect(content().string(not(containsString(LOAN_ASK))))
 			.andExpect(content().string(containsString("記你的借款")))
 			.andExpect(content().string(containsString("怎麼還？")))
-			.andExpect(content().string(containsString("這是股票質押（擔保股票等記完股票再設定）")))
+			.andExpect(content().string(containsString(
+					"這是股票質押（已經記在系統裡的股票在第 4 步設定擔保；還沒記的質押股票填在下面）")))
 			.andExpect(content().string(containsString("往來帳戶")))
 			.andExpect(content().string(containsString("開辦費、手續費（選填）")))
 			.andExpect(content().string(containsString("儲存這筆借款")))
@@ -691,6 +696,235 @@ class OnboardingControllerTest {
 			.andExpect(content().string(not(containsString(LOAN_ASK))))
 			.andExpect(content().string(containsString("value=\"abc\"")))
 			.andExpect(content().string(matchesPattern("(?s).*name=\"pledge\" value=\"true\" checked.*")));
+	}
+
+	// ---------- 借款這一步：還沒記在系統裡的質押股票（設計文件 2026-11-04-pledged-stocks 4.1、4.2） ----------
+
+	private static final String NEW_PLEDGES = "還沒記在系統裡的質押股票";
+
+	private static final LocalDate PLEDGE_DAY = LocalDate.of(2026, 7, 28);
+
+	/**
+	 * 確認畫面每檔一行「質押的股票　00646 3,000 股（2026-07-28，每股 75.15）」；存檔後記成期初持股，
+	 * 第 4 步擔保頁 00646 已勾、擔保 3,000；修改已儲存的借款時不顯示這個表格（只有新增時能記）。
+	 */
+	@Test
+	@WithUserDetails(value = "ob-cy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void wizardLoanRecordsNewPledges() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+		Long account = saveAccount(session, "玉山交割戶", "");
+		insertPledgeStocks();
+
+		MvcResult preview = mvc.perform(pledgePost("/welcome/loans/preview", account).session(session))
+			.andExpect(status().isOk())
+			.andExpect(content().string(containsString("確認要儲存這筆借款嗎？")))
+			.andExpect(content().string(containsString("00646 3,000 股（2026-07-28，每股 75.15）")))
+			.andReturn();
+		assertThat(rows(preview)).contains(new ConfirmRow("質押的股票", "00646 3,000 股（2026-07-28，每股 75.15）"));
+		String token = (String) preview.getModelAndView().getModel().get("formToken");
+
+		mvc.perform(post("/welcome/loans/save").param("formToken", token).session(session).with(csrf()))
+			.andExpect(redirectedUrl("/welcome/loans"));
+
+		Long loan = jdbc.queryForObject("SELECT MAX(id) FROM loan", Long.class);
+		Long stock = jdbc.queryForObject("SELECT id FROM stock WHERE code = '00646'", Long.class);
+		assertThat(jdbc.queryForList("SELECT CONCAT(type, '|', trade_date, '|', shares) FROM trade", String.class))
+			.containsExactly("OPENING|2026-07-28|3000");
+		assertThat(jdbc.queryForList("SELECT shares FROM pledge_collateral WHERE loan_id = ?", Long.class, loan))
+			.containsExactly(3000L);
+
+		mvc.perform(get("/welcome/collateral/" + loan).session(session))
+			.andExpect(status().isOk())
+			.andExpect(content().string(matchesPattern("(?s).*value=\"" + stock + "\"[^>]*checked.*")))
+			.andExpect(content().string(containsString("value=\"3000\"")))
+			.andExpect(content().string(containsString("　3,000 股")));
+
+		mvc.perform(get("/welcome/loans/" + loan + "/edit").session(session))
+			.andExpect(status().isOk())
+			.andExpect(content().string(not(containsString("name=\"newPledges[")))) // 頁面註解裡有表格名稱，只看欄位
+			.andExpect(content().string(not(containsString("再加一檔"))));
+	}
+
+	/** 加列、拿掉都保留打到一半的字；按上一步再回來，列還在。 */
+	@Test
+	@WithUserDetails(value = "ob-cy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void wizardPledgeRowsSurviveBack() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+		Long account = saveAccount(session, "玉山交割戶", "");
+		insertPledgeStocks();
+
+		mvc.perform(get("/welcome/loans/form").session(session))
+			.andExpect(content().string(containsString(NEW_PLEDGES)))
+			.andExpect(content().string(containsString("name=\"newPledges[0].stockCode\"")))
+			.andExpect(content().string(containsString("/welcome/loans/pledges?action=add")));
+
+		mvc.perform(pledgePost("/welcome/loans/pledges", account).param("action", "add").session(session))
+			.andExpect(redirectedUrl("/welcome/loans"));
+		mvc.perform(get("/welcome/loans").session(session))
+			.andExpect(content().string(containsString("name=\"newPledges[0].stockCode\" value=\"00646\"")))
+			.andExpect(content().string(containsString("name=\"newPledges[0].shares\" value=\"3000\"")))
+			.andExpect(content().string(containsString("name=\"newPledges[1].stockCode\"")))
+			.andExpect(content().string(containsString("value=\"玉山質押\"")));
+
+		mvc.perform(pledgePost("/welcome/loans/go", account).param("to", "accounts").session(session))
+			.andExpect(redirectedUrl("/welcome/accounts"));
+		mvc.perform(get("/welcome/loans").session(session))
+			.andExpect(content().string(containsString("name=\"newPledges[0].stockCode\" value=\"00646\"")))
+			.andExpect(content().string(containsString("name=\"newPledges[0].date\" value=\"2026-07-28\"")));
+
+		mvc.perform(pledgePost("/welcome/loans/pledges", account).param("action", "remove").param("index", "0")
+			.session(session))
+			.andExpect(redirectedUrl("/welcome/loans"));
+		mvc.perform(get("/welcome/loans").session(session))
+			.andExpect(content().string(not(containsString("value=\"00646\""))));
+		assertThat(loanCount()).isZero();
+	}
+
+	/** 「帶入收盤價」：價格空白的列帶入證交所那天的收盤價並註明來源（假證交所，不連網路）。 */
+	@Test
+	@WithUserDetails(value = "ob-cy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void wizardPledgePricesFillsClose() throws Exception {
+		twse.failure = null;
+		twse.monthly = """
+				{"stat":"OK","date":"20260701","title":"115年07月 00646 元大S&P500       各日成交資訊","fields":["日期","成交股數","成交金額","開盤價","最高價","最低價","收盤價","漲跌價差","成交筆數","註記"],"data":[["115/07/28","11,632,330","875,670,735","75.40","75.50","75.15","75.15","-1.05","4,829",""]]}
+				""";
+		MockHttpSession session = new MockHttpSession();
+		Long account = saveAccount(session, "玉山交割戶", "");
+		insertPledgeStocks();
+
+		mvc.perform(pledgePost("/welcome/loans/pledges", account, "").param("action", "prices").session(session))
+			.andExpect(redirectedUrl("/welcome/loans"));
+		mvc.perform(get("/welcome/loans").session(session))
+			.andExpect(content().string(containsString("name=\"newPledges[0].price\" value=\"75.15\"")))
+			.andExpect(content().string(containsString("證交所 2026-07-28 收盤價")));
+	}
+
+	/** 這檔已經記在系統裡（前一筆質押記過）：引導的說法是「請在第 4 步「擔保」勾選」，不是資金來源頁的「上面的持股清單」。 */
+	@Test
+	@WithUserDetails(value = "ob-cy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void wizardAlreadyRecordedPointsToStep4() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+		Long account = saveAccount(session, "玉山交割戶", "");
+		insertPledgeStocks();
+		String token = (String) mvc.perform(pledgePost("/welcome/loans/preview", account).session(session))
+			.andReturn().getModelAndView().getModel().get("formToken");
+		mvc.perform(post("/welcome/loans/save").param("formToken", token).session(session).with(csrf()))
+			.andExpect(redirectedUrl("/welcome/loans"));
+
+		MvcResult again = mvc.perform(pledgePost("/welcome/loans/preview", account).session(session))
+			.andExpect(status().isOk())
+			.andReturn();
+
+		assertThat(errors(again)).containsExactly("這檔已經記在系統裡了，請在第 4 步「擔保」勾選");
+		assertThat(loanCount()).isEqualTo(1);
+	}
+
+	/** 修改已儲存的借款：送來的質押股票列不理（只有新增能記），不會多出期初持股。 */
+	@Test
+	@WithUserDetails(value = "ob-cy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void wizardEditIgnoresNewPledges() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+		Long account = saveAccount(session, "玉山交割戶", "");
+		insertPledgeStocks();
+		Long loan = saveLoan(session, account, PLEDGE_DAY, "500000", PLEDGE_DAY.plusYears(1));
+
+		MvcResult preview = mvc.perform(pledgePost("/welcome/loans/" + loan + "/preview", account).session(session))
+			.andExpect(status().isOk())
+			.andExpect(content().string(containsString("確認要儲存這筆修改嗎？")))
+			.andReturn();
+		assertThat(rows(preview)).extracting(ConfirmRow::label).doesNotContain("質押的股票");
+		String token = (String) preview.getModelAndView().getModel().get("formToken");
+		mvc.perform(post("/welcome/loans/" + loan + "/save").param("formToken", token).session(session).with(csrf()))
+			.andExpect(redirectedUrl("/welcome/loans"));
+
+		assertThat(tradeTotal()).isZero();
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pledge_collateral", Integer.class)).isZero();
+	}
+
+	/** 沒勾股票質押（信貸）卻帶著質押股票列（例如沒有 JavaScript）：列不理，借款照存，不記期初持股。 */
+	@Test
+	@WithUserDetails(value = "ob-cy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void wizardCreditIgnoresNewPledges() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+		Long account = saveAccount(session, "玉山交割戶", "");
+		insertPledgeStocks();
+		MockHttpServletRequestBuilder credit = post("/welcome/loans/preview").param("name", "土銀信貸")
+			.param("bank", "土地銀行")
+			.param("origin", "NEW")
+			.param("repaymentMethod", "BULLET")
+			.param("startDate", PLEDGE_DAY.toString())
+			.param("startPrincipal", "500000")
+			.param("annualRatePercent", "2.5")
+			.param("dueDate", PLEDGE_DAY.plusYears(1).toString())
+			.param("payAccountId", account.toString())
+			.param("newPledges[0].stockCode", "00646")
+			.param("newPledges[0].shares", "3000")
+			.param("newPledges[0].date", PLEDGE_DAY.toString())
+			.param("newPledges[0].price", "75.15")
+			.with(csrf());
+
+		MvcResult preview = mvc.perform(credit.session(session))
+			.andExpect(status().isOk())
+			.andExpect(content().string(containsString("確認要儲存這筆借款嗎？")))
+			.andReturn();
+		assertThat(rows(preview)).extracting(ConfirmRow::label).doesNotContain("質押的股票");
+		String token = (String) preview.getModelAndView().getModel().get("formToken");
+		mvc.perform(post("/welcome/loans/save").param("formToken", token).session(session).with(csrf()))
+			.andExpect(redirectedUrl("/welcome/loans"));
+
+		assertThat(loanCount()).isEqualTo(1);
+		assertThat(tradeTotal()).isZero();
+	}
+
+	/** 加列時某一格打錯（股數 abc）：其他列和這一列的其他欄位都還在，不會整個表格清空。 */
+	@Test
+	@WithUserDetails(value = "ob-cy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void wizardBadValueKeepsOtherRows() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+		Long account = saveAccount(session, "玉山交割戶", "");
+		insertPledgeStocks();
+
+		mvc.perform(loanPost("/welcome/loans/pledges", account, PLEDGE_DAY, "500000", PLEDGE_DAY.plusYears(1))
+			.param("newPledges[0].stockCode", "00646")
+			.param("newPledges[0].shares", "abc")
+			.param("newPledges[0].date", PLEDGE_DAY.toString())
+			.param("newPledges[0].price", "75.15")
+			.param("newPledges[1].stockCode", "00662")
+			.param("newPledges[1].shares", "2000")
+			.param("newPledges[1].date", PLEDGE_DAY.toString())
+			.param("newPledges[1].price", "115.7")
+			.param("action", "add")
+			.session(session))
+			.andExpect(redirectedUrl("/welcome/loans"));
+
+		mvc.perform(get("/welcome/loans").session(session))
+			.andExpect(content().string(containsString("name=\"newPledges[0].stockCode\" value=\"00646\"")))
+			.andExpect(content().string(containsString("name=\"newPledges[0].price\" value=\"75.15\"")))
+			.andExpect(content().string(containsString("name=\"newPledges[1].stockCode\" value=\"00662\"")))
+			.andExpect(content().string(containsString("name=\"newPledges[1].shares\" value=\"2000\"")))
+			.andExpect(content().string(containsString("name=\"newPledges[2].stockCode\"")));
+	}
+
+	private int tradeTotal() {
+		return jdbc.queryForObject("SELECT COUNT(*) FROM trade", Integer.class);
+	}
+
+	private void insertPledgeStocks() {
+		jdbc.update("INSERT IGNORE INTO stock (code, name, kind, dividends_per_year, updated_at) "
+				+ "VALUES ('00646', '元大S&P500', 'ETF', 1, NOW()), ('00662', '富邦NASDAQ', 'ETF', 1, NOW())");
+	}
+
+	/** 到期一次還的股票質押，加一列還沒記在系統裡的 00646（2026-07-28，3,000 股，每股 75.15）。 */
+	private MockHttpServletRequestBuilder pledgePost(String url, Long account) {
+		return pledgePost(url, account, "75.15");
+	}
+
+	private MockHttpServletRequestBuilder pledgePost(String url, Long account, String price) {
+		return loanPost(url, account, PLEDGE_DAY, "500000", PLEDGE_DAY.plusYears(1))
+			.param("newPledges[0].stockCode", "00646")
+			.param("newPledges[0].shares", "3000")
+			.param("newPledges[0].date", PLEDGE_DAY.toString())
+			.param("newPledges[0].price", price);
 	}
 
 	// ---------- 股票這一步（Task 6） ----------

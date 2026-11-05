@@ -27,6 +27,7 @@ import com.sideproject.stockledger.dto.CollateralForm;
 import com.sideproject.stockledger.dto.ConfirmRow;
 import com.sideproject.stockledger.dto.LoanForm;
 import com.sideproject.stockledger.dto.LoanInput;
+import com.sideproject.stockledger.dto.NewPledgeLine;
 import com.sideproject.stockledger.dto.OpeningForm;
 import com.sideproject.stockledger.dto.StockInput;
 import com.sideproject.stockledger.dto.StockSourceInput;
@@ -476,9 +477,65 @@ public class OnboardingController {
 		});
 	}
 
+	/**
+	 * 「還沒記在系統裡的質押股票」的「＋ 再加一檔」（action=add）、「拿掉」（action=remove&amp;index=i）、
+	 * 「帶入收盤價」（action=prices）：同一個表單的按鈕（formaction）送到這裡，不用 JavaScript（設計文件 2026-11-04-pledged-stocks 4.1）。
+	 * 照股票資金來源表格的做法：拿這次的表單內容（確認中就是收起來的那份），由 Service 改好列，存成草稿再轉回借款頁，
+	 * 打到一半的字都在。只有新增借款有這個表格；修改中的那筆不改列，存草稿後回修改畫面。
+	 */
+	@PostMapping(LOANS_URL + "/pledges")
+	public String changePledges(@RequestParam(required = false) String action,
+			@RequestParam(required = false) Integer index, HttpServletRequest request, HttpSession session) {
+		return unlessDone(() -> {
+			Map<String, String[]> params = withoutActionParams(formParams(request, session, LOANS));
+			Optional<Long> editing = OnboardingDrafts.editingId(params).filter(onboarding::isMyLoan);
+			if (editing.isPresent()) {
+				drafts.save(session, LOANS, params);
+				return "redirect:" + loanUrl(editing.get()) + "/edit";
+			}
+			Object target = bindLoan(params, false).getTarget();
+			List<NewPledgeLine> current = target instanceof LoanForm f ? f.newPledges() : List.of();
+			drafts.save(session, LOANS, withPledges(params, onboarding.changePledgeRows(current, action, index)));
+			return "redirect:" + LOANS_URL;
+		});
+	}
+
+	/** 草稿不留按鈕的 action、index（只是這次要做什麼，不是表單內容）。 */
+	private static Map<String, String[]> withoutActionParams(Map<String, String[]> params) {
+		Map<String, String[]> copy = new LinkedHashMap<>(params);
+		copy.remove("action");
+		copy.remove("index");
+		return copy;
+	}
+
+	/**
+	 * 草稿換上新的質押股票列：拿掉原本的 newPledges[*]，照新的列重新編號（索引連續）。
+	 * 價格旁的說明（priceNote，帶入收盤價時 Service 填的）也放進草稿，轉回頁面時才看得到。
+	 */
+	private static Map<String, String[]> withPledges(Map<String, String[]> params, List<NewPledgeLine> rows) {
+		Map<String, String[]> copy = new LinkedHashMap<>();
+		params.forEach((name, values) -> {
+			if (!name.startsWith("newPledges[")) {
+				copy.put(name, values);
+			}
+		});
+		for (int i = 0; i < rows.size(); i++) {
+			NewPledgeLine row = rows.get(i);
+			String prefix = "newPledges[" + i + "].";
+			copy.put(prefix + "stockCode", new String[] { row.stockCode() == null ? "" : row.stockCode() });
+			copy.put(prefix + "shares", new String[] { row.shares() == null ? "" : row.shares().toString() });
+			copy.put(prefix + "date", new String[] { row.date() == null ? "" : row.date().toString() });
+			copy.put(prefix + "price", new String[] { row.price() == null ? "" : row.price().toPlainString() });
+			if (row.priceNote() != null) {
+				copy.put(prefix + "priceNote", new String[] { row.priceNote() });
+			}
+		}
+		return copy;
+	}
+
 	private String previewLoan(Long id, HttpServletRequest request, HttpSession session, Model model) {
 		BindingResult result = bindLoan(request.getParameterMap(), true);
-		LoanInput input = onboarding.checkLoan((LoanForm) result.getTarget(), result);
+		LoanInput input = onboarding.checkLoan(id, (LoanForm) result.getTarget(), result);
 		DraftBinder.put(model, result);
 		String token = input.ok() ? confirmToken(request, session, OnboardingDrafts.target(LOANS, id, null)) : null;
 		List<ConfirmRow> rows = input.ok() ? onboarding.rowsFor(input.form()) : List.of();
@@ -504,7 +561,7 @@ public class OnboardingController {
 			return "redirect:" + (id == null ? LOANS_URL : loanUrl(id) + "/edit");
 		}
 		BindingResult result = bindLoan(confirmed.get(), true);
-		LoanInput input = onboarding.checkLoan((LoanForm) result.getTarget(), result);
+		LoanInput input = onboarding.checkLoan(id, (LoanForm) result.getTarget(), result);
 		List<String> errors = input.errors();
 		if (input.ok()) {
 			try {
@@ -568,6 +625,7 @@ public class OnboardingController {
 		model.addAttribute("editingId", editingId);
 		model.addAttribute("myAccounts", onboarding.myAccounts());
 		model.addAttribute("repaymentMethods", RepaymentMethod.values());
+		model.addAttribute("maxNewPledges", onboarding.maxNewPledges());
 		model.addAttribute("goUrl", LOANS_URL + "/go");
 		model.addAttribute("previewUrl", loanUrl(editingId) + "/preview");
 		if (!model.containsAttribute("confirm")) {

@@ -287,3 +287,6 @@ input[type="date"], input[type="number"], input[type="month"] { width: 100%; pad
 .choice button:hover { border-color: var(--primary); background: var(--info-bg); }
 .choice small { display: block; color: var(--muted); }
 .step-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+
+/* 表單裡看不見的預設送出按鈕（按 Enter 時用它，不是列上的「拿掉」）：不能 display:none，否則瀏覽器不把它當預設按鈕 */
+.default-submit { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; white-space: nowrap; }

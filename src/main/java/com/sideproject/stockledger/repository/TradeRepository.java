@@ -30,4 +30,7 @@ public interface TradeRepository extends Repository<Trade, Long> {
 
 	List<Trade> findByUserIdOrderByTradeDateDescIdDesc(Long userId);
 
+	/** 這個人這檔股票有沒有任何沒作廢的交易（期初持股、買進、賣出、配股都算）。 */
+	boolean existsByUserIdAndStockIdAndVoidedFalse(Long userId, Long stockId);
+
 }

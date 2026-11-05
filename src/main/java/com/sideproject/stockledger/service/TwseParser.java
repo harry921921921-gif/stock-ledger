@@ -43,6 +43,38 @@ final class TwseParser {
 		return result;
 	}
 
+	/** STOCK_DAY（個股月資料）：stat 不是 OK 回空；收盤價（第 7 欄）不是數字的日子略過。 */
+	static List<DailyQuote> parseMonthlyQuotes(String code, String json) {
+		JsonNode root;
+		try {
+			root = JSON.readTree(json);
+		}
+		catch (JacksonException ex) {
+			throw new IllegalArgumentException("回應不是 JSON", ex);
+		}
+		List<DailyQuote> result = new ArrayList<>();
+		if (root == null || !"OK".equals(text(root, "stat")) || root.get("data") == null
+				|| !root.get("data").isArray()) {
+			return result;
+		}
+		for (JsonNode row : root.get("data")) {
+			if (!row.isArray() || row.size() < 7) {
+				continue;
+			}
+			BigDecimal close = number(row.get(6).asString());
+			if (close == null) {
+				continue;
+			}
+			try {
+				result.add(new DailyQuote(code, null, rocDate(row.get(0).asString().replace("/", "")), close));
+			}
+			catch (IllegalArgumentException ex) {
+				// 日期壞掉的那一列略過，不影響整個月
+			}
+		}
+		return result;
+	}
+
 	/** TWT48U_ALL。 */
 	static List<DividendNotice> parseDividendNotices(String json) {
 		List<DividendNotice> result = new ArrayList<>();

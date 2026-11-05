@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,7 +30,10 @@ import com.sideproject.stockledger.dto.LoanForm;
 import com.sideproject.stockledger.dto.Direction;
 import com.sideproject.stockledger.dto.MovementRow;
 import com.sideproject.stockledger.dto.OpeningForm;
+import com.sideproject.stockledger.dto.PrincipalForm;
 import com.sideproject.stockledger.dto.ReconcileForm;
+import com.sideproject.stockledger.dto.TradeForm;
+import com.sideproject.stockledger.entity.TradeType;
 import com.sideproject.stockledger.dto.TotalAssetsView;
 import com.sideproject.stockledger.entity.AppUser;
 import com.sideproject.stockledger.entity.CashAccountType;
@@ -68,6 +72,9 @@ class TotalAssetsServiceTest {
 	private PasswordEncoder encoder;
 
 	@Autowired
+	private TradeService trades;
+
+	@Autowired
 	private JdbcTemplate jdbc;
 
 	@Autowired
@@ -89,6 +96,9 @@ class TotalAssetsServiceTest {
 		jdbc.update("DELETE FROM loan");
 		jdbc.update("DELETE FROM recurring_item");
 		jdbc.update("DELETE FROM cash_account");
+		jdbc.update("DELETE FROM stock_price");
+		jdbc.update("DELETE FROM dividend");
+		jdbc.update("DELETE FROM stock");
 		createIfMissing("ta-amy");
 		createIfMissing("ta-ben");
 		loginAs("ta-amy");
@@ -382,6 +392,33 @@ class TotalAssetsServiceTest {
 
 	private AccountCard card(TotalAssetsView view, String name) {
 		return view.accounts().stream().filter(c -> c.name().equals(name)).findFirst().orElseThrow();
+	}
+
+	/** 質押 1,000 股 × 60：只是另外標示，總資產與沒質押時相同；還清後不再算（設計文件 2026-11-04 4.3）。 */
+	@Test
+	void pledgedValueShownButTotalUnchanged() {
+		Long settlement = account("交割戶");
+		jdbc.update("INSERT INTO stock (code, name, kind, dividends_per_year, updated_at) VALUES ('0056', '元大高股息', "
+				+ "'ETF', 4, NOW())");
+		Long stockId = jdbc.queryForObject("SELECT id FROM stock WHERE code = '0056'", Long.class);
+		jdbc.update("INSERT INTO stock_price (stock_id, trade_date, close_price) VALUES (?, ?, 60)", stockId, today);
+		trades.create(new TradeForm(TradeType.OPENING, today.minusDays(10), "0056", null, 1000L,
+				new BigDecimal("30"), null, null, null, List.of()));
+		TotalAssetsView before = service.view();
+		assertThat(before.pledgedValue()).isEqualByComparingTo("0");
+
+		Long pledge = loans.create(new LoanForm("玉山質押", LoanType.PLEDGE, "玉山銀行", LoanOrigin.EXISTING,
+				new BigDecimal("400000"), today.minusDays(1), new BigDecimal("400000"), new BigDecimal("3"), null,
+				settlement, 25, null, null, null)).getId();
+		loans.setCollateral(pledge, "0056", 1000L);
+		TotalAssetsView after = service.view();
+
+		assertThat(after.pledgedValue()).isEqualByComparingTo("60000");
+		assertThat(after.stockValue()).isEqualByComparingTo(before.stockValue());
+		assertThat(after.totalAssets()).isEqualByComparingTo(before.totalAssets());
+
+		loans.repay(pledge, new PrincipalForm(today, new BigDecimal("400000"), settlement));
+		assertThat(service.view().pledgedValue()).isEqualByComparingTo("0");
 	}
 
 	private Long account(String name) {

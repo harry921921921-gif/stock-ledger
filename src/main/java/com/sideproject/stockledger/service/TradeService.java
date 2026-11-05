@@ -48,7 +48,6 @@ import com.sideproject.stockledger.entity.CashMovement;
 import com.sideproject.stockledger.entity.CashMovementType;
 import com.sideproject.stockledger.entity.Dividend;
 import com.sideproject.stockledger.entity.Loan;
-import com.sideproject.stockledger.entity.PledgeCollateral;
 import com.sideproject.stockledger.entity.RateKind;
 import com.sideproject.stockledger.entity.SourceAllocation;
 import com.sideproject.stockledger.entity.Stock;
@@ -60,7 +59,6 @@ import com.sideproject.stockledger.repository.CashAccountRepository;
 import com.sideproject.stockledger.repository.CashMovementRepository;
 import com.sideproject.stockledger.repository.DividendRepository;
 import com.sideproject.stockledger.repository.LoanRepository;
-import com.sideproject.stockledger.repository.PledgeCollateralRepository;
 import com.sideproject.stockledger.repository.SourceAllocationRepository;
 import com.sideproject.stockledger.repository.StockPriceRepository;
 import com.sideproject.stockledger.repository.StockRepository;
@@ -107,16 +105,16 @@ public class TradeService {
 	private final NoticeService noticeService;
 	private final Clock clock;
 	private final PortfolioReader portfolioReader;
-	private final PledgeCollateralRepository collaterals;
+	private final PledgeStatusService pledgeStatus;
 
 	public TradeService(TradeRepository trades, TradeRevisionRepository revisions,
 			SourceAllocationRepository allocations, StockRepository stocks, StockPriceRepository prices,
 			DividendRepository dividends, CashAccountRepository accounts, CashMovementRepository movements,
 			CashMovementService cashMovements, LoanRepository loans,
 			RateSettingService rates, MoneyFormatter money, CurrentUser currentUser, Clock clock, PortfolioReader portfolioReader,
-			PledgeCollateralRepository collaterals, NoticeService noticeService) {
+			PledgeStatusService pledgeStatus, NoticeService noticeService) {
 		this.noticeService = noticeService;
-		this.collaterals = collaterals;
+		this.pledgeStatus = pledgeStatus;
 		this.portfolioReader = portfolioReader;
 		this.trades = trades;
 		this.revisions = revisions;
@@ -363,6 +361,7 @@ public class TradeService {
 		Map<Long, String> loanNames = loans.findByUserIdAndVoidedFalseOrderByIdAsc(userId).stream()
 			.collect(Collectors.toMap(Loan::getId, Loan::getName));
 
+		Map<Long, Long> pledgedByStock = pledgeStatus.pledgedSharesByStock();
 		List<HoldingRow> holdings = new ArrayList<>();
 		BigDecimal marketValue = BigDecimal.ZERO;
 		BigDecimal pricedCost = BigDecimal.ZERO;
@@ -392,7 +391,8 @@ public class TradeService {
 					mv == null ? null : StockMetricsCalculator.returnPercent(mv, pos.cost()).orElse(null),
 					mv == null ? null
 							: StockMetricsCalculator.totalReturnPercent(mv, pos.dividends(), pos.cost()).orElse(null),
-					whole(pos.dividends()), annual, stock.getDividendsPerYear(), sourcesLabel(pos, loanNames)));
+					whole(pos.dividends()), annual, stock.getDividendsPerYear(), sourcesLabel(pos, loanNames),
+					pledgedByStock.getOrDefault(pos.stockId(), 0L)));
 		}
 		holdings.sort(Comparator.comparing((HoldingRow h) -> h.marketValue() == null ? h.cost() : h.marketValue())
 			.reversed());
@@ -513,7 +513,7 @@ public class TradeService {
 		catch (IllegalArgumentException ex) {
 			throw new TradeValidationException(trade.getType() == TradeType.SELL ? OVERSOLD : "這樣之後的賣出會超過持有股數");
 		}
-		checkCollateral(userId, portfolio, trade.getStockId());
+		checkCollateral(portfolio, trade.getStockId());
 		for (Long loanId : loanIds) {
 			BigDecimal undeployed = portfolio.loans().get(loanId).lowestUndeployed();
 			if (undeployed.signum() < 0) {
@@ -529,18 +529,12 @@ public class TradeService {
 		}
 	}
 
-	/** 質押的擔保股數合計不能超過持股（賣出或改股數後；spec 5.5）。 */
-	private void checkCollateral(Long userId, Portfolio portfolio, Long stockId) {
-		long pledged = collaterals.findActiveByUserId(userId).stream()
-			.filter(c -> c.getStockId().equals(stockId))
-			.mapToLong(PledgeCollateral::getShares)
-			.sum();
-		Position pos = portfolio.positions().get(stockId);
-		long held = pos == null ? 0 : pos.shares();
-		if (pledged > held) {
-			throw new TradeValidationException("這檔有 " + money.plain(BigDecimal.valueOf(pledged))
-					+ " 股設定為質押擔保，這樣持股只剩 " + money.plain(BigDecimal.valueOf(held)) + " 股；請先到資金來源頁調整擔保股數");
-		}
+	/** 質押中的擔保股數合計不能超過持股（賣出或改股數後；spec 5.5）。已還清、已作廢的質押不算（PledgeStatusService）。 */
+	private void checkCollateral(Portfolio portfolio, Long stockId) {
+		pledgeStatus.excess(portfolio, stockId).ifPresent(e -> {
+			throw new TradeValidationException("這檔有 " + money.plain(BigDecimal.valueOf(e.pledged()))
+					+ " 股設定為質押擔保，這樣持股只剩 " + money.plain(BigDecimal.valueOf(e.held())) + " 股；請先到資金來源頁調整擔保股數");
+		});
 	}
 
 	/** 讀出目前登入者的所有交易、配息、借款流量，算出投資組合。 */
@@ -639,6 +633,12 @@ public class TradeService {
 	@Transactional(readOnly = true)
 	public Map<Long, BigDecimal> latestPrices(Collection<Long> stockIds) {
 		return latestPrices(stockIds, today());
+	}
+
+	/** 這檔股票有沒有任何沒作廢的交易（新增質押時「還沒記在系統裡」的檢查，設計文件 2026-11-04-pledged-stocks 6）。 */
+	@Transactional(readOnly = true)
+	public boolean hasTrades(Long stockId) {
+		return trades.existsByUserIdAndStockIdAndVoidedFalse(currentUser.id(), stockId);
 	}
 
 	/** 沒作廢的交易裡有沒有用到這筆借款當資金來源（借款作廢前檢查）。 */

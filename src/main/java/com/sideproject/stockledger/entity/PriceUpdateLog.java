@@ -17,6 +17,7 @@ public class PriceUpdateLog {
 
 	public static final String PRICES = "PRICES";
 	public static final String DIVIDENDS = "DIVIDENDS";
+	public static final String HISTORY = "HISTORY";
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)

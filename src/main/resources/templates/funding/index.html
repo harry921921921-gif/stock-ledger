@@ -8,7 +8,7 @@
 	<script th:src="@{/js/app.js}" defer></script>
 </head>
 <body>
-<!-- 依設計稿「資金來源」（Funding），只做目前有資料的部分。所有數字都由 LoanService 算好，這裡只負責顯示。 -->
+<!--/* 依設計稿「資金來源」（Funding），只做目前有資料的部分。所有數字都由 LoanService 算好，這裡只負責顯示。 */-->
 <div class="app" th:with="v=${view}">
 	<aside th:replace="~{fragments/layout :: sidebar('funding')}"></aside>
 	<main class="content">
@@ -89,7 +89,7 @@
 					</th:block>
 					<dt>往來帳戶</dt><dd th:text="${c.payAccountName()}">土銀帳戶</dd>
 				</dl>
-				<!-- 借款值不值得：投資賺到和已付利息比，賺贏利息就算符合預期（2026-10-23 使用者決定） -->
+				<!--/* 借款值不值得：投資賺到和已付利息比，賺贏利息就算符合預期（2026-10-23 使用者決定） */-->
 				<div class="worth" th:classappend="|worth-${#strings.toLowerCase(c.verdict())}|">
 					<p class="worth-verdict" th:switch="${c.verdict()}">
 						<span th:case="'BEAT'">✓ 賺贏利息</span>
@@ -133,13 +133,16 @@
 							<dt th:text="|${line.label()} ${#numbers.formatInteger(line.shares(), 1, 'COMMA')} 股|">0056 元大高股息 1,000 股</dt>
 							<dd th:text="${line.marketValue() != null} ? ${@money.plain(line.marketValue())} : '沒有股價'">60,000</dd>
 						</th:block>
-						<dt>維持率</dt>
-						<dd th:if="${c.maintenancePercent() == null}">—</dd>
-						<dd th:if="${c.maintenancePercent() != null}"
-								th:class="|maintenance maintenance-${#strings.toLowerCase(c.maintenanceLevel())}|"
-								th:text="|${c.maintenancePercent()}%${c.maintenanceLevel() == 'CALL' ? '（低於追繳線）' : (c.maintenanceLevel() == 'WARN' ? '（低於提醒線）' : '')}|">165.00%</dd>
-						<dt>提醒線／追繳線</dt><dd th:text="|${c.warnPercent()}% ／ ${c.callPercent()}%|">150% ／ 130%</dd>
+						<th:block th:unless="${c.collateralReleased()}">
+							<dt>維持率</dt>
+							<dd th:if="${c.maintenancePercent() == null}">—</dd>
+							<dd th:if="${c.maintenancePercent() != null}"
+									th:class="|maintenance maintenance-${#strings.toLowerCase(c.maintenanceLevel())}|"
+									th:text="|${c.maintenancePercent()}%${c.maintenanceLevel() == 'CALL' ? '（低於追繳線）' : (c.maintenanceLevel() == 'WARN' ? '（低於提醒線）' : '')}|">165.00%</dd>
+							<dt>提醒線／追繳線</dt><dd th:text="|${c.warnPercent()}% ／ ${c.callPercent()}%|">150% ／ 130%</dd>
+						</th:block>
 					</dl>
+					<p class="muted" th:if="${c.collateralReleased()}">已還清，擔保股票已解除質押</p>
 					<details class="card-details">
 						<summary>設定擔保股票、維持率門檻</summary>
 						<form class="inline-form" method="post" th:action="@{/funding/{id}/collateral(id=${c.id()})}">
@@ -161,7 +164,9 @@
 				<p class="card-actions">
 					<a th:href="@{/funding/{id}/edit(id=${c.id()})}">修改</a> ·
 					<a th:href="@{/funding/{id}/rate(id=${c.id()})}">新增利率</a> ·
-					<a th:href="@{/funding/{id}/repay(id=${c.id()})}" th:unless="${c.paidOff()}" th:text="${c.credit()} ? '提前還本' : '還本'">還本</a>
+					<!--/* 還沒還清的股票質押（到期一次還本金＋利息、每月繳息到期還本）用「還款／到期處理」取代「還本」（DR-054） */-->
+					<a th:href="@{/funding/{id}/settle(id=${c.id()})}" th:if="${c.settle()}">還款／到期處理</a>
+					<a th:href="@{/funding/{id}/repay(id=${c.id()})}" th:unless="${c.paidOff() or c.settle()}" th:text="${c.credit()} ? '提前還本' : '還本'">還本</a>
 					<th:block th:if="${c.pledge() and c.monthlyPayment() == null}"> · <a th:href="@{/funding/{id}/redraw(id=${c.id()})}">再動撥</a></th:block> ·
 					<a th:href="@{/assets/movements(loan=${c.id()})}">看紀錄</a>
 				</p>

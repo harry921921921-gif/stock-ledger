@@ -66,10 +66,12 @@ public class CashMovementService {
 	private final CurrentUser currentUser;
 	private final Clock clock;
 	private final PortfolioReader portfolioReader;
+	private final PledgeStatusService pledgeStatus;
 
 	public CashMovementService(CashMovementRepository movements, CashMovementRevisionRepository revisions,
 			CashAccountRepository accounts, LoanRepository loans, LoanFactsReader loanFacts, CurrentUser currentUser,
-			Clock clock, PortfolioReader portfolioReader) {
+			Clock clock, PortfolioReader portfolioReader, PledgeStatusService pledgeStatus) {
+		this.pledgeStatus = pledgeStatus;
 		this.portfolioReader = portfolioReader;
 		this.movements = movements;
 		this.revisions = revisions;
@@ -650,6 +652,13 @@ public class CashMovementService {
 		portfolioReader.uncoveredLoan(currentUser.id()).ifPresent(message -> {
 			throw new CashValidationException(message);
 		});
+		// 還本作廢或改少、撥款改多：已還清的質押又回到質押中，擔保股票可能已經賣掉（設計文件 2026-11-04-pledged-stocks 第 6 節）
+		if (m.getType() == CashMovementType.LOAN_PRINCIPAL || m.getType() == CashMovementType.LOAN_DISBURSEMENT) {
+			String what = m.getType() == CashMovementType.LOAN_PRINCIPAL ? "這筆還本作廢／修改後" : "這筆撥款作廢／修改後";
+			pledgeStatus.collateralNotHeld(m.getLoanId(), what).ifPresent(message -> {
+				throw new CashValidationException(message);
+			});
+		}
 	}
 
 	// ---------- 存檔 ----------

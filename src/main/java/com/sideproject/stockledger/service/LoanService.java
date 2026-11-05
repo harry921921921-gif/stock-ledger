@@ -20,6 +20,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 import com.sideproject.stockledger.calculator.DailyInterestCalculator;
 import com.sideproject.stockledger.calculator.Installment;
@@ -41,9 +42,15 @@ import com.sideproject.stockledger.dto.LoanEditResult;
 import com.sideproject.stockledger.dto.LoanForm;
 import com.sideproject.stockledger.dto.LoanHoldingLine;
 import com.sideproject.stockledger.dto.LoanPurchaseLine;
+import com.sideproject.stockledger.dto.NewPledgeLine;
+import com.sideproject.stockledger.dto.TradeForm;
 import com.sideproject.stockledger.dto.PrincipalForm;
 import com.sideproject.stockledger.dto.RateVersionForm;
+import com.sideproject.stockledger.dto.ConfirmRow;
+import com.sideproject.stockledger.dto.SettleForm;
+import com.sideproject.stockledger.dto.SettlePreview;
 import com.sideproject.stockledger.entity.CashAccount;
+import com.sideproject.stockledger.entity.CashAccountType;
 import com.sideproject.stockledger.entity.CashMovement;
 import com.sideproject.stockledger.entity.CashMovementType;
 import com.sideproject.stockledger.entity.Loan;
@@ -54,6 +61,8 @@ import com.sideproject.stockledger.entity.RateKind;
 import com.sideproject.stockledger.entity.RateSetting;
 import com.sideproject.stockledger.entity.RepaymentMethod;
 import com.sideproject.stockledger.entity.Stock;
+import com.sideproject.stockledger.entity.Trade;
+import com.sideproject.stockledger.entity.TradeType;
 import com.sideproject.stockledger.repository.CashAccountRepository;
 import com.sideproject.stockledger.repository.CashMovementRepository;
 import com.sideproject.stockledger.repository.CashMovementRevisionRepository;
@@ -85,6 +94,8 @@ public class LoanService {
 	/** 修改借款後系統重算時寫的修改紀錄原因；有這個原因的紀錄不算使用者手改過（DR-051）。 */
 	public static final String EDIT_REASON = "借款資料修改後重算";
 
+	static final String BULLET_NO_INTEREST_WARNING = "這筆借款還清了，但這次沒有記利息；銀行有收利息的話，請勾「現金還款」、還本留空、填利息";
+
 	static final String NEGATIVE_PRINCIPAL = "這樣之後的剩餘本金會變成負數";
 
 	private final LoanRepository loans;
@@ -102,12 +113,17 @@ public class LoanService {
 	private final StockRepository stocks;
 	private final PledgeCollateralRepository collaterals;
 	private final CashMovementRevisionRepository revisions;
+	private final PledgeStatusService pledgeStatus;
+	private final MarketDataService marketData;
 
 	public LoanService(LoanRepository loans, RateSettingRepository rates, CashAccountRepository accounts,
 			CashMovementRepository movements, LoanFactsReader facts, LoanPostingService posting,
 			CashMovementService cashMovements, MoneyFormatter money, CurrentUser currentUser, Clock clock,
 			TradeService tradeService, StockRepository stocks, PledgeCollateralRepository collaterals,
-			CashMovementRevisionRepository revisions, NoticeService noticeService) {
+			CashMovementRevisionRepository revisions, NoticeService noticeService, PledgeStatusService pledgeStatus,
+			MarketDataService marketData) {
+		this.marketData = marketData;
+		this.pledgeStatus = pledgeStatus;
 		this.noticeService = noticeService;
 		this.revisions = revisions;
 		this.tradeService = tradeService;
@@ -165,6 +181,17 @@ public class LoanService {
 			Stock stock = stocks.findById(pick.stockId()).orElseThrow(() -> new NotFoundException("找不到這檔股票"));
 			setCollateral(loan.getId(), stock.getCode(), pick.shares());
 		}
+		for (NewPledgeLine line : filledPledges(form)) {
+			// 還沒記在系統裡的質押股票：記成期初持股（不扣錢、沒有資金來源），再設成這筆借款的擔保（設計文件 6）
+			try {
+				tradeService.create(new TradeForm(TradeType.OPENING, line.date(), line.stockCode(), null, line.shares(),
+						line.price(), null, null, null, List.of()));
+			}
+			catch (TradeValidationException ex) {
+				throw new LoanValidationException(line.stockCode() + "：" + ex.getMessage());
+			}
+			setCollateral(loan.getId(), line.stockCode(), line.shares());
+		}
 		if (form.type() == LoanType.PLEDGE && (form.warnPercent() != null || form.callPercent() != null)) {
 			setThresholds(loan.getId(), form.warnPercent() == null ? DEFAULT_WARN : form.warnPercent(),
 					form.callPercent() == null ? DEFAULT_CALL : form.callPercent());
@@ -190,7 +217,7 @@ public class LoanService {
 		return new LoanForm(f.name(), f.type(), f.bank(), f.origin(), f.originalAmount(), f.startDate(),
 				f.startPrincipal(), f.annualRatePercent(), disburse, f.payAccountId(), payDay, f.remainingPeriods(), first,
 				f.dueDate(), f.repaymentMethod(), f.monthlyPayment(), f.fee(), f.collateral(), f.warnPercent(),
-				f.callPercent());
+				f.callPercent(), f.newPledges());
 	}
 
 	/**
@@ -208,9 +235,11 @@ public class LoanService {
 				: RepaymentMethod.legacyOf(submitted.type());
 		LoanForm form = normalize(submitted, method);
 		BigDecimal rate = validate(form, method);
-		if (form.type() != LoanType.PLEDGE && form.collateral().stream().anyMatch(LoanService::picked)) {
+		if (form.type() != LoanType.PLEDGE
+				&& (form.collateral().stream().anyMatch(LoanService::picked) || !filledPledges(form).isEmpty())) {
 			throw new LoanValidationException("只有股票質押要選擔保股票");
 		}
+		checkNewPledges(filledPledges(form));
 		if (method == RepaymentMethod.MONTHLY_FIXED) {
 			checkSchedule(form, rate);
 		}
@@ -223,6 +252,116 @@ public class LoanService {
 
 	private static boolean picked(CollateralPick pick) {
 		return pick.stockId() != null && pick.shares() != null && pick.shares() != 0;
+	}
+
+	// ---------- 還沒記在系統裡的質押股票（設計文件 2026-11-04-pledged-stocks 4.1、6） ----------
+
+	/** 「還沒記在系統裡的質押股票」最多幾列。 */
+	public static final int MAX_NEW_PLEDGES = 20;
+
+	private static final long MAX_PLEDGE_SHARES = 1_000_000_000_000L;
+
+	static final String ALREADY_RECORDED = "這檔已經記在系統裡了，請在上面的持股清單勾選";
+
+	static final String NO_CLOSE_NOTE = "那天沒有收盤價（休市或還沒有資料），請自己填";
+
+	private static List<NewPledgeLine> filledPledges(LoanForm form) {
+		return form.newPledges().stream().filter(Objects::nonNull).filter(NewPledgeLine::filled).toList();
+	}
+
+	/**
+	 * 每一列的檢查（create 與 validate 共用，訊息沿用股票頁）：代號是系統裡的股票、股數正整數、有質押日期、
+	 * 這檔沒有任何沒作廢的交易（避免同一批股票記兩次）、同一檔不能兩列、價格大於 0。
+	 */
+	private void checkNewPledges(List<NewPledgeLine> lines) {
+		if (lines.size() > MAX_NEW_PLEDGES) {
+			throw new LoanValidationException("還沒記在系統裡的質押股票最多 " + MAX_NEW_PLEDGES + " 檔");
+		}
+		Set<Long> seen = new HashSet<>();
+		for (NewPledgeLine line : lines) {
+			if (line.stockCode() == null) {
+				throw new LoanValidationException("請輸入股票代號");
+			}
+			Stock stock = stocks.findByCode(line.stockCode())
+				.orElseThrow(() -> new LoanValidationException("找不到這個上市股票代號：" + line.stockCode()));
+			if (line.shares() == null || line.shares() <= 0 || line.shares() > MAX_PLEDGE_SHARES) {
+				throw new LoanValidationException("請輸入股數（正整數）");
+			}
+			if (line.date() == null) {
+				throw new LoanValidationException("請選擇質押日期");
+			}
+			if (line.date().isAfter(today())) {
+				throw new LoanValidationException("質押日期不能晚於今天");
+			}
+			if (line.date().isBefore(MIN_DATE)) {
+				throw new LoanValidationException("質押日期要在 2000-01-01 之後");
+			}
+			if (tradeService.hasTrades(stock.getId())) {
+				throw new LoanValidationException(ALREADY_RECORDED);
+			}
+			if (!seen.add(stock.getId())) {
+				throw new LoanValidationException("同一檔股票只能填一列：" + line.stockCode());
+			}
+			if (line.price() == null || line.price().signum() <= 0) {
+				throw new LoanValidationException("請輸入價格");
+			}
+			if (line.price().stripTrailingZeros().scale() > 4) {
+				throw new LoanValidationException("價格小數最多 4 位");
+			}
+		}
+	}
+
+	/**
+	 * 價格空白、代號與日期都有的列：帶入證交所那天的收盤價並註明來源；抓不到就留空、請使用者自己填
+	 * （不可猜數字）。其他列原樣回傳。不寫借款、不檢查；故意不加 @Transactional：抓價要連網路，
+	 * 不放在資料庫交易裡（{@link MarketDataService#closeOn} 自己用獨立交易存價格）。
+	 */
+	public List<NewPledgeLine> fillPrices(List<NewPledgeLine> lines) {
+		// 同一檔、同一個月只問證交所一次（多列同月的假日不重抓）
+		Set<String> fetchedMonths = new HashSet<>();
+		List<NewPledgeLine> result = new ArrayList<>();
+		for (NewPledgeLine line : lines) {
+			// 日期晚於今天或早於 2000-01-01：存檔時會被擋下，不必去問證交所（也不留抓價紀錄）
+			if (line == null || line.price() != null || line.stockCode() == null || line.date() == null
+					|| line.date().isAfter(today()) || line.date().isBefore(MIN_DATE)) {
+				result.add(line == null ? NewPledgeLine.blank() : line);
+				continue;
+			}
+			// 資料庫存的是 4 位小數（75.1500）：去掉多餘的 0 再放回欄位，和使用者自己打的一樣
+			Optional<BigDecimal> close = marketData.closeOn(line.stockCode(), line.date(), fetchedMonths)
+				.map(p -> p.stripTrailingZeros().scale() < 0 ? p.setScale(0, RoundingMode.UNNECESSARY)
+						: p.stripTrailingZeros());
+			result.add(new NewPledgeLine(line.stockCode(), line.shares(), line.date(), close.orElse(null),
+					close.isPresent() ? "證交所 " + line.date() + " 收盤價" : NO_CLOSE_NOTE));
+		}
+		return result;
+	}
+
+	/**
+	 * 表單上「＋ 再加一檔」（add）、「拿掉」（remove，第 index 列）、「帶入收盤價」（prices）：改好清單再畫回表單，
+	 * 不檢查、不存。最多 {@link #MAX_NEW_PLEDGES} 列；index 不對或不認得的動作就原樣回傳。
+	 */
+	public List<NewPledgeLine> changePledgeRows(List<NewPledgeLine> lines, String action, Integer index) {
+		List<NewPledgeLine> rows = new ArrayList<>(lines.stream().map(l -> l == null ? NewPledgeLine.blank() : l)
+			.toList());
+		switch (action == null ? "" : action) {
+			case "add" -> {
+				if (rows.size() < MAX_NEW_PLEDGES) {
+					rows.add(NewPledgeLine.blank());
+				}
+			}
+			case "remove" -> {
+				if (index != null && index >= 0 && index < rows.size()) {
+					rows.remove(index.intValue());
+				}
+			}
+			case "prices" -> {
+				return fillPrices(rows);
+			}
+			default -> {
+			}
+		}
+		return rows;
 	}
 
 	/**
@@ -421,6 +560,7 @@ public class LoanService {
 		if (facts.read(loan).minRemaining().signum() < 0) {
 			throw new LoanValidationException(NEGATIVE_PRINCIPAL);
 		}
+		requireCollateralHeld(loan, "借款修改後");
 		coverShortfall(loan, confirmShortfall);
 		return new LoanEditResult(loan, kept.stream().map(LoanEditResult.KeptPeriod::of).toList(),
 				!Objects.equals(loan.getPayAccountId(), oldPay));
@@ -592,6 +732,268 @@ public class LoanService {
 		return saved;
 	}
 
+	// ---------- 質押借款的還款／到期處理（設計文件 2026-11-04-pledged-stocks 6a、DR-054） ----------
+
+	static final String SETTLE_NOT_ALLOWED = "只有還沒還清的股票質押（到期一次還本金＋利息、每月繳息到期還本）可以做還款／到期處理";
+
+	static final String OVER_PLEDGED = "賣出的股數超過擔保股數";
+
+	static final String PAID_OFF_NO_EXTEND = "已經還清，不需要展延";
+
+	static final String NOTHING_TO_PAY = "現金還款請填還本金額或利息";
+
+	/** 這筆質押的一檔擔保股票（還款／到期處理表單的一列）。 */
+	public record PledgedStock(Long stockId, String code, String label, long shares) {
+	}
+
+	/** 這筆借款的擔保股票：股票 id → 代號、名稱、擔保股數（照股票 id 排）。別人的借款 → 404。 */
+	@Transactional(readOnly = true)
+	public Map<Long, PledgedStock> pledgedStocks(Long id) {
+		Loan loan = find(id);
+		Map<Long, PledgedStock> result = new TreeMap<>();
+		for (PledgeCollateral c : collaterals.findByUserIdAndLoanId(currentUser.id(), loan.getId())) {
+			Stock s = stocks.findById(c.getStockId()).orElseThrow();
+			result.put(s.getId(), new PledgedStock(s.getId(), s.getCode(), s.getCode() + " " + s.getName(), c.getShares()));
+		}
+		return result;
+	}
+
+	/**
+	 * 表單預設值：現金還款帶剩餘本金與到今天的應計利息（沿用 {@link #repayDefaults}）、往來帳戶；
+	 * 賣股票還款帶第一個證券交割戶（沒有就是往來帳戶），每一檔擔保股票一列（股數空白＝不賣）。
+	 */
+	@Transactional(readOnly = true)
+	public SettleForm settleDefaults(Long id) {
+		Loan loan = find(id);
+		requireSettleable(loan, facts.read(loan));
+		PrincipalForm d = repayDefaults(id);
+		Long settlementAccount = accounts.findByUserIdOrderByIdAsc(currentUser.id()).stream()
+			.filter(a -> a.getType() == CashAccountType.SETTLEMENT)
+			.map(CashAccount::getId)
+			.findFirst()
+			.orElse(loan.getPayAccountId());
+		List<SettleForm.SettleSale> sales = pledgedStocks(id).values().stream()
+			.map(s -> new SettleForm.SettleSale(s.stockId(), null, null, null, null, null))
+			.toList();
+		return new SettleForm(false, d.date(), d.accountId(), d.amount(), d.interest(), false, settlementAccount, sales,
+				null, false, null);
+	}
+
+	/**
+	 * 只驗證不存（確認畫面）：在一個交易裡照存檔的步驟整個做一次（{@link #applySettle}），列出每一行，然後回滾。
+	 * 這樣確認畫面的數字（手續費、證交稅、實際入帳、賣股還款）和擋下的訊息，與真的存檔時一模一樣；
+	 * 代價是資料庫的流水號會跳號（InnoDB 的 AUTO_INCREMENT 回滾不退回），不影響資料。
+	 * 一定要是最外層的交易：已經在交易裡呼叫（例如另一個 @Transactional 方法）會丟 {@link IllegalStateException}，
+	 * 不然回滾會連外層一起撤掉。
+	 */
+	@Transactional
+	public SettlePreview previewSettle(Long id, SettleForm form) {
+		if (!TransactionAspectSupport.currentTransactionStatus().isNewTransaction()) {
+			// 加入了外層交易：這裡的 setRollbackOnly 會讓外層整筆回滾（UnexpectedRollbackException）
+			throw new IllegalStateException("previewSettle 會回滾整個交易，只能在沒有交易的地方呼叫（例如 Controller）");
+		}
+		SettlePreview preview = applySettle(id, form);
+		TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+		return preview;
+	}
+
+	/**
+	 * 存檔：同一個交易依序 ① 擔保股數減掉要賣的股數 ② 每檔記一筆賣出（入帳到交割戶，手續費、證交稅照賣出規則）
+	 * ③ 同一天從交割戶記一筆借款還本（賣股還款）④ 現金還款（本金＋利息，沿用 {@link #repay}）⑤ 展延（只改到期日，
+	 * 沿用 {@link #edit}）。任一步失敗整筆回滾。擔保要先減：不然賣出會被「質押中的股數超過持股」擋下。
+	 */
+	@Transactional
+	public void settle(Long id, SettleForm form) {
+		applySettle(id, form);
+	}
+
+	private SettlePreview applySettle(Long id, SettleForm form) {
+		Loan loan = findForUpdate(id);
+		requireSettleable(loan, facts.read(loan));
+		if (!form.cash() && !form.sell() && !form.extend()) {
+			throw new LoanValidationException("請至少勾選一種處理方式（現金還款、賣股票還款、展延）");
+		}
+		Map<Long, String> accountNames = accounts.findByUserIdOrderByIdAsc(currentUser.id()).stream()
+			.collect(Collectors.toMap(CashAccount::getId, CashAccount::getName));
+		LocalDate today = today();
+		List<ConfirmRow> rows = new ArrayList<>();
+		BigDecimal saleRepay = null;
+		List<SettleForm.SettleSale> resolvedSales = form.sales();
+		if (form.cash() || form.sell()) {
+			checkSettleDate(loan, form.date());
+		}
+		if (form.sell()) {
+			Long settlementId = findMyAccount(form.settlementAccountId(), "請選擇交割戶").getId();
+			List<SettleForm.SettleSale> selling = form.sales().stream().filter(Objects::nonNull)
+				.filter(SettleForm.SettleSale::selling)
+				.toList();
+			if (selling.isEmpty()) {
+				throw new LoanValidationException("請填要賣的股數");
+			}
+			Map<Long, PledgedStock> pledged = pledgedStocks(loan.getId());
+			Set<Long> seen = new HashSet<>();
+			for (SettleForm.SettleSale s : selling) {
+				PledgedStock p = pledged.get(s.stockId());
+				if (p == null) {
+					throw new LoanValidationException("只能賣這筆借款的擔保股票");
+				}
+				if (!seen.add(s.stockId())) {
+					throw new LoanValidationException("同一檔股票只能填一列：" + p.code());
+				}
+				if (s.shares() < 0) {
+					throw new LoanValidationException(p.code() + "：請輸入股數（正整數）");
+				}
+				if (s.shares() > p.shares()) {
+					throw new LoanValidationException(OVER_PLEDGED);
+				}
+			}
+			// ① 擔保先減掉要賣的股數
+			for (SettleForm.SettleSale s : selling) {
+				PledgedStock p = pledged.get(s.stockId());
+				setCollateral(loan.getId(), p.code(), p.shares() - s.shares());
+			}
+			// ② 每檔一筆賣出
+			BigDecimal proceeds = BigDecimal.ZERO;
+			List<SettleForm.SettleSale> resolved = new ArrayList<>();
+			for (SettleForm.SettleSale s : form.sales()) {
+				if (s == null || !s.selling()) {
+					resolved.add(s);
+					continue;
+				}
+				PledgedStock p = pledged.get(s.stockId());
+				Trade trade;
+				try {
+					trade = tradeService.create(new TradeForm(TradeType.SELL, form.date(), p.code(), settlementId,
+							s.shares(), s.price(), s.fee(), s.tax(), s.amount(), List.of()));
+				}
+				catch (TradeValidationException ex) {
+					throw new LoanValidationException(p.code() + "：" + ex.getMessage());
+				}
+				proceeds = proceeds.add(trade.getAmount());
+				resolved.add(new SettleForm.SettleSale(s.stockId(), s.shares(), s.price(), whole(trade.getFee()),
+						whole(trade.getTax()), whole(trade.getAmount())));
+				rows.add(new ConfirmRow("賣出 " + p.label(), money.plain(BigDecimal.valueOf(s.shares())) + " 股 × "
+						+ plainPrice(s.price()) + "，手續費 " + money.plain(trade.getFee()) + " 元、證交稅 "
+						+ money.plain(trade.getTax()) + " 元，實際入帳 " + money.plain(trade.getAmount()) + " 元（入帳到 "
+						+ accountNames.get(settlementId) + "）"));
+				rows.add(new ConfirmRow("擔保股數 " + p.code(), money.plain(BigDecimal.valueOf(p.shares())) + " 股 → "
+						+ money.plain(BigDecimal.valueOf(p.shares() - s.shares())) + " 股"));
+			}
+			resolvedSales = resolved;
+			// ③ 賣得的錢同一天從交割戶還本：預設＝實際入帳合計，不超過剩餘本金
+			BigDecimal remaining = whole(facts.read(loan).remaining(form.date()));
+			saleRepay = form.saleRepay() != null ? form.saleRepay() : whole(proceeds.min(remaining));
+			if (saleRepay.compareTo(proceeds) > 0) {
+				throw new LoanValidationException("賣股還款不能超過賣出實際入帳合計 " + money.plain(proceeds) + " 元");
+			}
+			repay(loan.getId(), new PrincipalForm(form.date(), saleRepay, settlementId, null));
+			rows.add(new ConfirmRow("賣股還款", form.date() + " 從 " + accountNames.get(settlementId) + " 還本金 "
+					+ money.plain(saleRepay) + " 元"));
+		}
+		if (form.cash()) {
+			// ④ 現金還款
+			boolean withPrincipal = form.principal() != null && form.principal().signum() != 0;
+			boolean withInterest = form.interest() != null && form.interest().signum() != 0;
+			if (!withPrincipal && !withInterest) {
+				throw new LoanValidationException(NOTHING_TO_PAY);
+			}
+			if (withPrincipal) {
+				repay(loan.getId(), new PrincipalForm(form.date(), form.principal(), form.accountId(), form.interest()));
+			}
+			else {
+				// 只付利息：賣股票已經還清本金時，到期一次還本金＋利息的利息還要記（和還本一起付利息的規則相同）
+				payInterestOnly(loan, form.date(), form.accountId(), form.interest());
+			}
+			rows.add(new ConfirmRow("現金還款", form.date() + " 從 " + accountNames.get(form.accountId())
+					+ (withPrincipal ? " 還本金 " + money.plain(form.principal()) + " 元" : " 付")
+					+ (withInterest ? (withPrincipal ? "、" : "") + "利息 " + money.plain(form.interest()) + " 元" : "")));
+		}
+		LoanFacts after = facts.read(loan);
+		boolean paidOff = after.repaid(today);
+		if (form.extend()) {
+			// ⑤ 展延：還清時不能同時展延
+			if (paidOff) {
+				throw new LoanValidationException(PAID_OFF_NO_EXTEND);
+			}
+			LocalDate oldDue = loan.getDueDate();
+			LocalDate due = form.newDueDate();
+			if (due == null) {
+				throw new LoanValidationException("請選擇展延後的到期日");
+			}
+			if (!due.isAfter(today) || (oldDue != null && !due.isAfter(oldDue))) {
+				throw new LoanValidationException("展延後的到期日要晚於今天和原到期日"
+						+ (oldDue == null ? "" : "（" + oldDue + "）"));
+			}
+			edit(loan.getId(), withDueDate(form(loan.getId()), due), false);
+			rows.add(new ConfirmRow("展延", "到期日 " + (oldDue == null ? "（沒填）" : oldDue) + " → " + due));
+		}
+		BigDecimal remaining = whole(after.remaining(today));
+		rows.add(new ConfirmRow("處理後剩餘本金", money.plain(remaining) + " 元"
+				+ (paidOff ? "（已還清，剩下的擔保股票解除質押）" : "")));
+		SettleForm resolved = new SettleForm(form.cash(), form.date(), form.accountId(), form.principal(),
+				form.interest(), form.sell(), form.settlementAccountId(), resolvedSales, saleRepay, form.extend(),
+				form.newDueDate());
+		// 到期一次還本金＋利息沒有自動記息：賣股票還清又沒填利息，利息成本會被漏掉（不擋，只提醒）
+		boolean interestRecorded = form.cash() && form.interest() != null && form.interest().signum() != 0;
+		List<String> warnings = loan.getRepaymentMethod() == RepaymentMethod.BULLET && paidOff && !interestRecorded
+				? List.of(BULLET_NO_INTEREST_WARNING) : List.of();
+		return new SettlePreview(rows, remaining, paidOff, warnings, resolved);
+	}
+
+	/**
+	 * 現金還款只付利息（本金空白或 0）：記一筆借款利息。和 {@link #repay} 一起付利息同樣的規則：日期不能早於起算日、
+	 * 不能晚於今天，只有到期一次還本金＋利息，金額是正的整數元。
+	 */
+	private void payInterestOnly(Loan loan, LocalDate date, Long accountId, BigDecimal interest) {
+		Long account = validatePrincipal(loan, new PrincipalForm(date, interest, accountId));
+		if (loan.getRepaymentMethod() != RepaymentMethod.BULLET) {
+			throw new LoanValidationException("只有到期一次還本金＋利息要一起填利息");
+		}
+		checkAmount(interest, "利息");
+		movements.saveAndFlush(CashMovement.ofLoan(loan, CashMovementType.LOAN_INTEREST, date, account, interest, null,
+				LocalDateTime.now(clock)));
+	}
+
+	/** 還款／到期處理只適用還沒還清的股票質押（到期一次還本金＋利息、每月繳息到期還本）；信貸維持「還本」。 */
+	private void requireSettleable(Loan loan, LoanFacts f) {
+		if (loan.isVoided() || !settleable(loan)) {
+			throw new LoanValidationException(SETTLE_NOT_ALLOWED);
+		}
+		if (f.repaid(today())) {
+			throw new LoanValidationException("這筆借款已經還清，不需要再處理");
+		}
+	}
+
+	private static boolean settleable(Loan loan) {
+		return loan.getType() == LoanType.PLEDGE && loan.getRepaymentMethod() != RepaymentMethod.MONTHLY_FIXED;
+	}
+
+	/** 現金還款與賣股票還款的日期（賣出也記這天）：和還本同樣的規則，先檢查，賣出前就擋下。 */
+	private void checkSettleDate(Loan loan, LocalDate date) {
+		if (date == null) {
+			throw new LoanValidationException("請選擇日期");
+		}
+		if (date.isBefore(loan.getStartDate())) {
+			throw new LoanValidationException("日期不能早於起算日");
+		}
+		if (date.isAfter(today())) {
+			throw new LoanValidationException("日期不能晚於今天");
+		}
+	}
+
+	private static LoanForm withDueDate(LoanForm f, LocalDate due) {
+		return new LoanForm(f.name(), f.type(), f.bank(), f.origin(), f.originalAmount(), f.startDate(),
+				f.startPrincipal(), f.annualRatePercent(), f.disburseAccountId(), f.payAccountId(), f.payDay(),
+				f.remainingPeriods(), f.firstPeriod(), due, f.repaymentMethod(), f.monthlyPayment(), f.fee(),
+				f.collateral(), f.warnPercent(), f.callPercent(), f.newPledges());
+	}
+
+	/** 股價顯示：去掉多餘的小數 0（76.0000 → 76）。 */
+	private static String plainPrice(BigDecimal price) {
+		BigDecimal stripped = price.stripTrailingZeros();
+		return (stripped.scale() < 0 ? stripped.setScale(0) : stripped).toPlainString();
+	}
+
 	/** 質押再動撥：記一筆借款撥款到指定帳戶，之後依新的餘額計息。 */
 	@Transactional
 	public CashMovement redraw(Long id, PrincipalForm form) {
@@ -604,24 +1006,30 @@ public class LoanService {
 			throw new LoanValidationException("每月固定還款不能再動撥");
 		}
 		Long accountId = validatePrincipal(loan, form);
-		return movements.saveAndFlush(CashMovement.ofLoan(loan, CashMovementType.LOAN_DISBURSEMENT, form.date(),
-				accountId, form.amount(), null, LocalDateTime.now(clock)));
+		CashMovement saved = movements.saveAndFlush(CashMovement.ofLoan(loan, CashMovementType.LOAN_DISBURSEMENT,
+				form.date(), accountId, form.amount(), null, LocalDateTime.now(clock)));
+		requireCollateralHeld(loan, "再動撥後");
+		return saved;
 	}
 
 	/**
 	 * 作廢借款（例如起算本金打錯又已經開始記帳）：連同所有撥款、還本、利息一起作廢並寫修改紀錄，
 	 * 之後不出現在資金來源頁、不再自動記帳。不硬刪除；只有擔保股票是設定不是事件（DR-046），直接刪掉，
-	 * 不然會繼續擋住賣出。
+	 * 不然會繼續擋住賣出。質押時記的期初持股留著（股票是真的資產，設計文件 2026-11-04-pledged-stocks 6）。
+	 *
+	 * @return 這筆借款有沒有擔保股票（有的話畫面提醒「質押時記的期初持股沒有刪」）
 	 */
 	@Transactional
-	public void voidLoan(Long id, String reason) {
+	public boolean voidLoan(Long id, String reason) {
 		Loan loan = findForUpdate(id);
 		if (tradeService.loanInUse(loan.getId())) {
 			throw new LoanValidationException("還有股票交易用到這筆借款當資金來源；請先修改或作廢那些交易");
 		}
 		cashMovements.voidLoanMovements(loan.getId(), reason);
-		collaterals.findByUserIdAndLoanId(currentUser.id(), loan.getId()).forEach(collaterals::delete);
+		List<PledgeCollateral> pledged = collaterals.findByUserIdAndLoanId(currentUser.id(), loan.getId());
+		pledged.forEach(collaterals::delete);
 		loan.markVoided();
+		return !pledged.isEmpty();
 	}
 
 	/**
@@ -665,14 +1073,10 @@ public class LoanService {
 		if (shares == 0) {
 			return stock;
 		}
-		Long userId = currentUser.id();
 		Position position = tradeService.portfolio().positions().get(stock.getId());
 		long held = position == null ? 0 : position.shares();
-		// 同一檔股票可能同時擔保好幾筆質押：合計不能超過持股
-		long otherLoans = collaterals.findActiveByUserId(userId).stream()
-			.filter(c -> c.getStockId().equals(stock.getId()) && !c.getLoanId().equals(loan.getId()))
-			.mapToLong(PledgeCollateral::getShares)
-			.sum();
+		// 同一檔股票可能同時擔保好幾筆質押：合計不能超過持股（已還清、已作廢的質押不算）
+		long otherLoans = pledgeStatus.pledgedSharesOtherThan(loan.getId(), stock.getId());
 		if (shares + otherLoans > held) {
 			throw new LoanValidationException(otherLoans == 0
 					? "擔保股數不能超過持有股數（" + money.plain(BigDecimal.valueOf(held)) + " 股）"
@@ -693,18 +1097,13 @@ public class LoanService {
 	}
 
 	/**
-	 * 其他沒作廢的質押已經押的股數：股票 id → 合計股數（和 {@link #checkCollateral} 的「合計不能超過持股」同一個算法）。
-	 * 別人的借款 → 404。
+	 * 其他還在質押中（沒作廢、沒還清）的質押已經押的股數：股票 id → 合計股數
+	 * （和 {@link #checkCollateral} 的「合計不能超過持股」同一個算法）。別人的借款 → 404。
 	 */
 	@Transactional(readOnly = true)
 	public Map<Long, Long> collateralOfOtherLoans(Long id) {
 		Loan loan = find(id);
-		Map<Long, Long> shares = new TreeMap<>();
-		collaterals.findActiveByUserId(currentUser.id())
-			.stream()
-			.filter(c -> !c.getLoanId().equals(loan.getId()))
-			.forEach(c -> shares.merge(c.getStockId(), c.getShares(), Long::sum));
-		return shares;
+		return pledgeStatus.pledgedSharesByStockOtherThan(loan.getId());
 	}
 
 	/** 設定這筆質押的維持率提醒線與追繳線（%），從今天起生效（spec 5.5、DR-007；沒設定時 150%、130%）。 */
@@ -782,7 +1181,7 @@ public class LoanService {
 	@Transactional(readOnly = true)
 	public BigDecimal remainingPrincipal(Loan loan, LocalDate asOf) {
 		requireMine(loan);
-		return facts.read(loan).remaining(asOf);
+		return facts.remaining(loan, asOf);
 	}
 
 	/** 某一天適用的年利率（0.025 = 2.5%）。 */
@@ -839,7 +1238,8 @@ public class LoanService {
 
 	private LoanCard card(Loan loan, LoanFacts f, BigDecimal remaining, BigDecimal rate, BigDecimal monthInterest,
 			Map<Long, String> accountNames, LocalDate today, StockContext sc) {
-		boolean paidOff = remaining.signum() <= 0;
+		// 已還清：本金 0 而且有還本（撥款以前的新撥款不算，LoanFacts.repaid；和質押中同一個判斷）
+		boolean paidOff = f.repaid(today);
 		BigDecimal paidInterest = f.active().stream()
 			.filter(m -> m.getType() == CashMovementType.LOAN_INTEREST || m.getType() == CashMovementType.LOAN_FEE)
 			.map(CashMovement::getAmount)
@@ -950,7 +1350,8 @@ public class LoanService {
 				nextAmount, periodsLeft, accountNames.getOrDefault(loan.getPayAccountId(), "—"), paidOff, deployedIn,
 				sc.purchases().getOrDefault(loan.getId(), List.of()),
 				whole(netGain), whole(investGain), investReturn, verdict, collateral, maintenance, level, warn, call,
-				loan.getRepaymentMethod().label(), monthlyPayment, dueDate, daysToDue, amountAtDue, accrued, dueSoon);
+				loan.getRepaymentMethod().label(), monthlyPayment, dueDate, daysToDue, amountAtDue, accrued, dueSoon,
+				loan.getType() == LoanType.PLEDGE && paidOff, settleable(loan) && !paidOff);
 	}
 
 	/** 資金來源頁要用的股票資料：投資組合、股名、最新股價、各質押的擔保股票。 */
@@ -1023,6 +1424,16 @@ public class LoanService {
 			tradeService.reduceLoanAllocations(loan.getId(), cuts, EDIT_REASON);
 		}
 		requireLoansCovered();
+	}
+
+	/**
+	 * 已還清的質押因為這次改動又回到質押中時，擔保股票（加上其他質押）不能超過目前持股（設計文件 2026-11-04-pledged-stocks
+	 * 第 6 節；和還本作廢、賣出同一個比較，PledgeStatusService）。
+	 */
+	private void requireCollateralHeld(Loan loan, String what) {
+		pledgeStatus.collateralNotHeld(loan.getId(), what).ifPresent(message -> {
+			throw new LoanValidationException(message);
+		});
 	}
 
 	/** 借款作廢以外的改動（改本金、日期、還本）之後：買股票用掉的錢不能超過借到的。 */

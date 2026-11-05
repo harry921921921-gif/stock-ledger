@@ -33,6 +33,7 @@ import org.springframework.security.test.context.support.WithUserDetails;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.sideproject.stockledger.FakeTwseConfig;
 import com.sideproject.stockledger.TestcontainersConfig;
 import com.sideproject.stockledger.entity.AppUser;
 import com.sideproject.stockledger.entity.Role;
@@ -42,7 +43,7 @@ import com.sideproject.stockledger.repository.AppUserRepository;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@Import(TestcontainersConfig.class)
+@Import({ TestcontainersConfig.class, FakeTwseConfig.class })
 class FundingControllerTest {
 
 	private static final Pattern TOKEN = Pattern.compile("name=\"formToken\" value=\"([^\"]+)\"");
@@ -64,6 +65,9 @@ class FundingControllerTest {
 
 	@Autowired
 	private com.sideproject.stockledger.service.TradeService trades;
+
+	@Autowired
+	private FakeTwseConfig.FakeTwseClient twse;
 
 	@Autowired
 	private com.sideproject.stockledger.security.AppUserDetailsService userDetailsService;
@@ -430,6 +434,133 @@ class FundingControllerTest {
 				+ "AND type = 'LOAN_DISBURSEMENT' AND voided = FALSE", Long.class, loan)).isEqualTo(bank);
 	}
 
+	// ---------- 還沒記在系統裡的質押股票（設計文件 2026-11-04-pledged-stocks 4.1） ----------
+
+	/** 「＋ 再加一檔」：畫回同一頁、多一列，打到一半的字都在；不存、不用掉代號。 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void addRowKeepsTyping() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+		String token = openNewForm(session);
+
+		String html = mvc.perform(post("/funding/new/pledges").session(session).with(csrf()).param("action", "add")
+				.param("formToken", token).params(pledgeParams()))
+			.andExpect(status().isOk())
+			.andReturn().getResponse().getContentAsString();
+
+		assertThat(html).contains("value=\"玉山質押\"")
+			.contains("name=\"newPledges[0].stockCode\" value=\"00646\"")
+			.contains("name=\"newPledges[0].shares\" value=\"3000\"")
+			.contains("name=\"newPledges[0].date\" value=\"2026-07-28\"")
+			.contains("name=\"newPledges[1].stockCode\"")
+			.doesNotContain("name=\"newPledges[2].stockCode\"")
+			.contains("質押後股票會從券商 App 的庫存消失，但還是你的資產。不記得成本就用質押那天的收盤價，報酬率會從那天開始算。")
+			.contains("name=\"formToken\" value=\"" + token + "\"");
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM loan", Integer.class)).isZero();
+
+		// 拿掉第 0 列：剩下的列重新編號
+		var params = pledgeParams();
+		params.add("newPledges[1].stockCode", "00662");
+		html = mvc.perform(post("/funding/new/pledges").session(session).with(csrf()).param("action", "remove")
+				.param("index", "0").param("formToken", token).params(params))
+			.andExpect(status().isOk())
+			.andReturn().getResponse().getContentAsString();
+		assertThat(html).contains("name=\"newPledges[0].stockCode\" value=\"00662\"")
+			.doesNotContain("value=\"00646\"");
+
+		// 代號還能用：照樣存得起來
+		mvc.perform(post("/funding/new").session(session).with(csrf()).param("formToken", token).params(pledgeParams()))
+			.andExpect(redirectedUrl("/funding"));
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM trade WHERE type = 'OPENING'", Integer.class)).isEqualTo(1);
+	}
+
+	/** 在欄位裡按 Enter：瀏覽器用表單裡第一個送出按鈕，要是「儲存」（送到表單本身的網址），不是「拿掉」。 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void firstSubmitButtonSaves() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+		String token = openNewForm(session);
+		String html = mvc.perform(post("/funding/new/pledges").session(session).with(csrf()).param("action", "add")
+				.param("formToken", token).params(pledgeParams()))
+			.andReturn().getResponse().getContentAsString();
+
+		for (String page : new String[] { html, mvc.perform(get("/funding/new").session(session)).andReturn()
+				.getResponse().getContentAsString() }) {
+			String form = page.substring(page.indexOf("<form class=\"form-card\""));
+			assertThat(form).contains("action=\"/funding/new\"");
+			Matcher first = Pattern.compile("<button type=\"submit\"[^>]*>").matcher(form);
+			assertThat(first.find()).isTrue();
+			assertThat(first.group()).contains("class=\"default-submit\"").contains("tabindex=\"-1\"")
+				.contains("aria-hidden=\"true\"").doesNotContain("formaction").doesNotContain("disabled")
+				.doesNotContain("name=");
+			assertThat(form.indexOf(first.group())).isLessThan(form.indexOf(">拿掉</button>"));
+		}
+	}
+
+	/** 「帶入收盤價」：價格空白的列填證交所那天的收盤價並註明來源，其他欄位不變。 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void pricesButtonFillsAndKeepsOtherFields() throws Exception {
+		twse.failure = null;
+		twse.monthly = MONTHLY_00646;
+		MockHttpSession session = new MockHttpSession();
+		var params = pledgeParams();
+		params.remove("newPledges[0].price");
+
+		String html = mvc.perform(post("/funding/new/pledges").session(session).with(csrf()).param("action", "prices")
+				.param("formToken", openNewForm(session)).params(params))
+			.andExpect(status().isOk())
+			.andReturn().getResponse().getContentAsString();
+
+		assertThat(html).contains("name=\"newPledges[0].price\" value=\"75.15\"")
+			.contains("證交所 2026-07-28 收盤價")
+			.contains("value=\"玉山銀行\"")
+			.contains("name=\"newPledges[0].shares\" value=\"3000\"");
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM loan", Integer.class)).isZero();
+	}
+
+	/** 作廢有擔保股票的借款：提醒期初持股沒有刪。 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void voidMessageMentionsPledgedOpenings() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+		mvc.perform(post("/funding/new").session(session).with(csrf()).param("formToken", openNewForm(session))
+				.params(pledgeParams()))
+			.andExpect(redirectedUrl("/funding"));
+		Long loan = jdbc.queryForObject("SELECT MAX(id) FROM loan", Long.class);
+
+		mvc.perform(post("/funding/{id}/void", loan).with(csrf()).param("reason", "打錯"))
+			.andExpect(redirectedUrl("/funding"))
+			.andExpect(flash().attribute("message",
+					"已作廢「玉山質押」和它的所有紀錄。質押時記的期初持股沒有刪，要刪請到股票頁作廢"));
+	}
+
+	private static final String MONTHLY_00646 = """
+			{"stat":"OK","date":"20260701","title":"115年07月 00646 元大S&P500       各日成交資訊","fields":["日期","成交股數","成交金額","開盤價","最高價","最低價","收盤價","漲跌價差","成交筆數","註記"],"data":[["115/07/27","2,555,126","194,255,606","76.00","76.20","75.80","76.20","+0.70","3,844",""],["115/07/28","11,632,330","875,670,735","75.40","75.50","75.15","75.15","-1.05","4,829",""]]}
+			""";
+
+	/** 新撥款、到期一次還的質押，加一列還沒記在系統裡的 00646。 */
+	private org.springframework.util.LinkedMultiValueMap<String, String> pledgeParams() {
+		jdbc.update("INSERT IGNORE INTO stock (code, name, kind, dividends_per_year, updated_at) "
+				+ "VALUES ('00646', '元大S&P500', 'ETF', 1, NOW()), ('00662', '富邦NASDAQ', 'ETF', 1, NOW())");
+		var p = new org.springframework.util.LinkedMultiValueMap<String, String>();
+		p.add("name", "玉山質押");
+		p.add("bank", "玉山銀行");
+		p.add("repaymentMethod", "BULLET");
+		p.add("origin", "NEW");
+		p.add("pledge", "true");
+		p.add("startDate", "2026-07-28");
+		p.add("startPrincipal", "500000");
+		p.add("annualRatePercent", "3");
+		p.add("dueDate", "2027-07-28");
+		p.add("payAccountId", bank.toString());
+		p.add("newPledges[0].stockCode", "00646");
+		p.add("newPledges[0].shares", "3000");
+		p.add("newPledges[0].date", "2026-07-28");
+		p.add("newPledges[0].price", "75.15");
+		return p;
+	}
+
 	private void buyWithLoan(Long loan, LocalDate date, String code, long shares, String price, String amount) {
 		jdbc.update("INSERT IGNORE INTO stock (code, name, kind, dividends_per_year, updated_at) "
 				+ "VALUES (?, '元大台灣50', 'ETF', 2, NOW())", code);
@@ -606,6 +737,158 @@ class FundingControllerTest {
 			.isEqualTo(revisionsBefore);
 		assertThat(rateRows(loan)).isEqualTo(ratesBefore);
 		assertThat(html).contains("還款方式：每月固定還款");
+	}
+
+	// ---------- 質押借款的還款／到期處理（設計文件 2026-11-04-pledged-stocks 6a、DR-054） ----------
+
+	/** 10 萬到期一次還本金＋利息的質押，擔保 00646 3,000 股（質押時記的期初持股）。 */
+	private Long createSettlePledge() throws Exception {
+		jdbc.update("INSERT IGNORE INTO stock (code, name, kind, dividends_per_year, updated_at) "
+				+ "VALUES ('00646', '元大S&P500', 'ETF', 1, NOW())");
+		MockHttpSession session = new MockHttpSession();
+		var p = new org.springframework.util.LinkedMultiValueMap<String, String>();
+		p.add("name", "玉山質押");
+		p.add("bank", "玉山銀行");
+		p.add("repaymentMethod", "BULLET");
+		p.add("origin", "NEW");
+		p.add("pledge", "true");
+		p.add("startDate", today.minusMonths(3).toString());
+		p.add("startPrincipal", "100000");
+		p.add("annualRatePercent", "3");
+		p.add("dueDate", today.plusMonths(9).toString());
+		p.add("payAccountId", bank.toString());
+		p.add("newPledges[0].stockCode", "00646");
+		p.add("newPledges[0].shares", "3000");
+		p.add("newPledges[0].date", today.minusMonths(3).toString());
+		p.add("newPledges[0].price", "75.15");
+		mvc.perform(post("/funding/new").session(session).with(csrf()).param("formToken", openNewForm(session))
+				.params(p))
+			.andExpect(redirectedUrl("/funding"));
+		return jdbc.queryForObject("SELECT MAX(id) FROM loan", Long.class);
+	}
+
+	/** 質押卡片的「還本」換成「還款／到期處理」；信貸卡片仍是「還本」。 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void creditLoanStillHasRepay() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+		mvc.perform(post("/funding/new").session(session).with(csrf()).param("formToken", openNewForm(session))
+				.params(creditParams()))
+			.andExpect(redirectedUrl("/funding"));
+		Long credit = jdbc.queryForObject("SELECT MAX(id) FROM loan", Long.class);
+		Long pledge = createSettlePledge();
+
+		String html = mvc.perform(get("/funding")).andReturn().getResponse().getContentAsString();
+
+		assertThat(html).contains("href=\"/funding/" + credit + "/repay\"")
+			.contains("href=\"/funding/" + pledge + "/settle\"")
+			.contains("還款／到期處理")
+			.doesNotContain("href=\"/funding/" + pledge + "/repay\"")
+			.doesNotContain("href=\"/funding/" + credit + "/settle\"");
+	}
+
+	/** 預覽列出確認內容但不存；確認儲存只用預覽收起來的內容；按兩次只存一次。 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void settleSaveTwiceSavesOnce() throws Exception {
+		Long loan = createSettlePledge();
+		MockHttpSession session = new MockHttpSession();
+		mvc.perform(get("/funding/{id}/settle", loan).session(session))
+			.andExpect(status().isOk())
+			.andExpect(content().string(containsString("還款／到期處理")))
+			.andExpect(content().string(containsString("00646 元大S&amp;P500")))
+			.andExpect(content().string(containsString("value=\"100000\"")));
+
+		String preview = mvc.perform(post("/funding/{id}/settle/preview", loan).session(session).with(csrf())
+				.param("cash", "true").param("date", today.toString()).param("accountId", bank.toString())
+				.param("principal", "100000").param("interest", "700"))
+			.andExpect(status().isOk())
+			.andReturn().getResponse().getContentAsString();
+		assertThat(preview).contains("確認").contains("100,000").contains("已還清");
+		assertThat(principalRows(loan)).isEmpty();
+
+		String token = token(preview);
+		for (int i = 0; i < 2; i++) {
+			// 送出時表單上的值被改了也不算：存的是預覽確認過的那份
+			mvc.perform(post("/funding/{id}/settle", loan).session(session).with(csrf()).param("formToken", token)
+					.param("cash", "true").param("principal", "1"))
+				.andExpect(redirectedUrl("/funding"));
+		}
+
+		assertThat(principalRows(loan)).containsExactly("100000.0000");
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cash_movement WHERE loan_id = ? AND type = 'LOAN_INTEREST'",
+				Integer.class, loan)).isEqualTo(1);
+	}
+
+	/** 預覽擋下的錯誤留在表單上，什麼都不存。 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void settlePreviewErrorStaysOnForm() throws Exception {
+		Long loan = createSettlePledge();
+		Long stock = jdbc.queryForObject("SELECT id FROM stock WHERE code = '00646'", Long.class);
+
+		mvc.perform(post("/funding/{id}/settle/preview", loan).with(csrf()).param("sell", "true")
+				.param("date", today.toString()).param("settlementAccountId", bank.toString())
+				.param("sales[0].stockId", stock.toString()).param("sales[0].shares", "3001")
+				.param("sales[0].price", "76"))
+			.andExpect(status().isOk())
+			.andExpect(content().string(containsString("賣出的股數超過擔保股數")))
+			.andExpect(content().string(not(containsString("確認要儲存這次還款"))));
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM trade WHERE type = 'SELL'", Integer.class)).isZero();
+	}
+
+	/** 預覽之後資料變了、存檔失敗：畫回使用者原本填的，自動算的手續費、證交稅、實際入帳、賣股還款維持空白。 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void settleSaveFailureRedrawsSubmittedValues() throws Exception {
+		Long loan = createSettlePledge();
+		Long stock = jdbc.queryForObject("SELECT id FROM stock WHERE code = '00646'", Long.class);
+		MockHttpSession session = new MockHttpSession();
+		String preview = mvc.perform(post("/funding/{id}/settle/preview", loan).session(session).with(csrf())
+				.param("sell", "true").param("date", today.toString()).param("settlementAccountId", bank.toString())
+				.param("sales[0].stockId", stock.toString()).param("sales[0].shares", "1000")
+				.param("sales[0].price", "76"))
+			.andExpect(status().isOk())
+			.andReturn().getResponse().getContentAsString();
+		// 另一個分頁把擔保改成 500 股
+		jdbc.update("UPDATE pledge_collateral SET shares = 500 WHERE loan_id = ?", loan);
+
+		String html = mvc.perform(post("/funding/{id}/settle", loan).session(session).with(csrf())
+				.param("formToken", token(preview)))
+			.andExpect(status().isOk())
+			.andReturn().getResponse().getContentAsString();
+
+		assertThat(html).contains("賣出的股數超過擔保股數")
+			.contains("name=\"sales[0].shares\" value=\"1000\"")
+			.contains("name=\"sales[0].fee\" value=\"\"")
+			.contains("name=\"sales[0].amount\" value=\"\"")
+			.contains("name=\"saleRepay\" value=\"\"")
+			.doesNotContain("75816");
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM trade WHERE type = 'SELL'", Integer.class)).isZero();
+	}
+
+	/** 別人的借款：還款／到期處理的每一個網址都是 404。 */
+	@Test
+	@WithUserDetails(value = "fc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void settleOthersLoanIsNotFound() throws Exception {
+		Long benId = users.findByUsername("fc-ben").orElseThrow().getId();
+		Long benBank = insertAccount(benId, "班的帳戶");
+		jdbc.update("INSERT INTO loan (user_id, name, loan_type, repayment_method, bank, original_amount, origin, start_date, "
+				+ "start_principal, pay_account_id, pay_day, due_date, posting_from, created_at) VALUES (?, '班的質押', "
+				+ "'PLEDGE', 'INTEREST_ONLY', '銀行', 1000, 'EXISTING', ?, 1000, ?, 25, ?, ?, NOW())", benId, today,
+				benBank, today.plusYears(1), thisMonth.atDay(1));
+		Long loan = jdbc.queryForObject("SELECT MAX(id) FROM loan", Long.class);
+
+		mvc.perform(get("/funding/{id}/settle", loan)).andExpect(status().isNotFound());
+		mvc.perform(post("/funding/{id}/settle/preview", loan).with(csrf()).param("extend", "true")
+				.param("newDueDate", today.plusYears(2).toString())).andExpect(status().isNotFound());
+		mvc.perform(post("/funding/{id}/settle", loan).with(csrf()).param("formToken", "x"))
+			.andExpect(status().isNotFound());
+	}
+
+	private java.util.List<String> principalRows(Long loan) {
+		return jdbc.queryForList("SELECT amount FROM cash_movement WHERE loan_id = ? AND type = 'LOAN_PRINCIPAL' "
+				+ "AND voided = FALSE ORDER BY id", String.class, loan);
 	}
 
 	private java.util.List<String> loanRows(Long loan) {

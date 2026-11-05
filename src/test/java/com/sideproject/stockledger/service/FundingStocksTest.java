@@ -246,6 +246,36 @@ class FundingStocksTest {
 		assertThat(card.callPercent()).isEqualByComparingTo("130");
 	}
 
+	/** 還清的質押（設計文件 2026-11-04-pledged-stocks 第 6 節）：卡片顯示擔保已解除、不算維持率；擔保列照樣列出。 */
+	@Test
+	void repaidCardShowsReleased() {
+		trades.create(buyWithLoan(0));
+		loans.setCollateral(pledge.getId(), "0056", 1000L);
+		assertThat(card().collateralReleased()).isFalse();
+
+		loans.repay(pledge.getId(), new PrincipalForm(today, new BigDecimal("400000"), settlement));
+
+		LoanCard card = card();
+		assertThat(card.collateralReleased()).isTrue();
+		assertThat(card.maintenancePercent()).isNull();
+		assertThat(card.maintenanceLevel()).isNull();
+		assertThat(card.collateral()).hasSize(1);
+	}
+
+	/** 信貸沒有擔保，還清也不顯示「擔保股票已解除質押」。 */
+	@Test
+	void repaidCreditIsNotReleased() {
+		Loan credit = loans.create(new LoanForm("土銀信貸", LoanType.CREDIT, "土地銀行", LoanOrigin.EXISTING,
+				new BigDecimal("100000"), today.minusDays(1), new BigDecimal("100000"), new BigDecimal("2.45"), null,
+				settlement, 1, 84, java.time.YearMonth.from(today).plusMonths(1), null));
+		loans.repay(credit.getId(), new PrincipalForm(today, new BigDecimal("100000"), settlement));
+
+		LoanCard c = loans.fundingView().loans().stream().filter(x -> x.id().equals(credit.getId())).findFirst()
+			.orElseThrow();
+		assertThat(c.paidOff()).isTrue();
+		assertThat(c.collateralReleased()).isFalse();
+	}
+
 	/** 自訂門檻（依借款各自設定）；擔保股數 0 ＝ 拿掉；不能超過持有股數。 */
 	@Test
 	void thresholdsAndCollateralRules() {

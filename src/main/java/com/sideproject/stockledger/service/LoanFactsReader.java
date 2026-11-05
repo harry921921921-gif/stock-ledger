@@ -1,5 +1,6 @@
 package com.sideproject.stockledger.service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -45,6 +46,18 @@ class LoanFactsReader {
 				latestPerDate(versions, RateKind.LOAN_MONTHLY_PAYMENT).stream()
 					.map(r -> new PaymentChange(r.getEffectiveDate(), r.getValue()))
 					.toList());
+	}
+
+	/** 某一天（含當天的變動）的剩餘本金（LoanService.remainingPrincipal 用）。 */
+	@Transactional(readOnly = true)
+	BigDecimal remaining(Loan loan, LocalDate asOf) {
+		return read(loan).remaining(asOf);
+	}
+
+	/** 某一天已經還清（{@link LoanFacts#repaid}）：PledgeStatusService 與資金來源卡片共用。 */
+	@Transactional(readOnly = true)
+	boolean repaid(Loan loan, LocalDate asOf) {
+		return read(loan).repaid(asOf);
 	}
 
 	/** versions 已依生效日、id 由小到大排好：同一天後面的蓋掉前面的，順序不變。 */

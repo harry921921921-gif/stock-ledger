@@ -54,6 +54,17 @@ record LoanFacts(Loan loan, List<RateChange> rates, List<CashMovement> movements
 			.reduce(startBalance(), BigDecimal::add);
 	}
 
+	/**
+	 * 某一天已經還清：剩餘本金 ≤ 0，而且那天以前（含）有沒作廢的還本。只看本金是 0 不夠：
+	 * 新撥款在撥款日以前（或撥款日記在未來）本金也是 0，但還沒借到、也還沒還（設計文件 2026-11-04-pledged-stocks 第 6 節）。
+	 * 質押中、資金來源卡片的「已還清，擔保股票已解除質押」都用這一個判斷。
+	 */
+	boolean repaid(LocalDate asOf) {
+		boolean anyRepayment = active().stream()
+			.anyMatch(m -> m.getType() == CashMovementType.LOAN_PRINCIPAL && !m.getMovementDate().isAfter(asOf));
+		return anyRepayment && remaining(asOf).signum() <= 0;
+	}
+
 	/** 剩餘本金在任何一天的最小值（從起點依日期加上每一筆變動）；小於 0 代表還本超過借款。 */
 	BigDecimal minRemaining() {
 		BigDecimal balance = startBalance();

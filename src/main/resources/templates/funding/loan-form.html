@@ -21,6 +21,9 @@
 
 		<form class="form-card" method="post" th:object="${form}" th:unless="${#lists.isEmpty(myAccounts)}"
 				th:action="${loanId == null} ? @{/funding/new} : @{/funding/{id}/edit(id=${loanId})}">
+			<!-- 在欄位裡按 Enter 送出時，瀏覽器用表單裡第一個送出按鈕：放一個看不見的「儲存」在最前面，
+			     不然會變成「拿掉」等列按鈕。不能用 display:none（那樣不算數），所以用 default-submit 藏起來。 -->
+			<button type="submit" class="default-submit" tabindex="-1" aria-hidden="true">儲存</button>
 			<p class="alert alert-error" th:if="${#fields.hasErrors('*')}" th:each="e : ${#fields.errors('*')}" th:text="${e}">錯誤訊息</p>
 			<input type="hidden" name="formToken" th:if="${loanId == null}" th:value="${formToken}">
 

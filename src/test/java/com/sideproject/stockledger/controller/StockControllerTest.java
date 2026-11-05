@@ -26,6 +26,9 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.context.support.TestExecutionEvent;
 import org.springframework.security.test.context.support.WithUserDetails;
@@ -34,11 +37,13 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.sideproject.stockledger.TestcontainersConfig;
 import com.sideproject.stockledger.dto.LoanForm;
+import com.sideproject.stockledger.dto.PrincipalForm;
 import com.sideproject.stockledger.entity.AppUser;
 import com.sideproject.stockledger.entity.LoanOrigin;
 import com.sideproject.stockledger.entity.LoanType;
 import com.sideproject.stockledger.entity.Role;
 import com.sideproject.stockledger.repository.AppUserRepository;
+import com.sideproject.stockledger.security.AppUserDetailsService;
 import com.sideproject.stockledger.service.LoanService;
 
 /** 股票頁（spec 第 3 節第 3 頁、設計文件 2026-10-23-stocks 8）。 */
@@ -55,6 +60,9 @@ class StockControllerTest {
 
 	@Autowired
 	private LoanService loans;
+
+	@Autowired
+	private AppUserDetailsService userDetailsService;
 
 	@Autowired
 	private AppUserRepository users;
@@ -264,6 +272,25 @@ class StockControllerTest {
 		assertThat(benId).isNotEqualTo(amyId);
 	}
 
+	/** 持股質押中：名稱旁標「質押中 1,000 股」；還清後標籤消失（設計文件 2026-11-04 4.3）。 */
+	@Test
+	@WithUserDetails(value = "sc-amy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void holdingShowsPledgedShares() throws Exception {
+		buy();
+		mvc.perform(get("/stocks")).andExpect(content().string(not(containsString("質押中"))));
+		loginAmy();
+		Long pledge = loans.create(new LoanForm("玉山質押", LoanType.PLEDGE, "玉山銀行", LoanOrigin.EXISTING,
+				new BigDecimal("400000"), today.minusDays(1), new BigDecimal("400000"), new BigDecimal("3"), null,
+				settlement, 25, null, null, null)).getId();
+		loans.setCollateral(pledge, "0056", 1000L);
+
+		mvc.perform(get("/stocks")).andExpect(content().string(containsString("質押中 1,000 股")));
+
+		loginAmy();
+		loans.repay(pledge, new PrincipalForm(today, new BigDecimal("400000"), settlement));
+		mvc.perform(get("/stocks")).andExpect(content().string(not(containsString("質押中"))));
+	}
+
 	private Long buy() throws Exception {
 		MockHttpSession session = new MockHttpSession();
 		String token = token(mvc.perform(get("/stocks/trades/new").session(session)).andReturn().getResponse()
@@ -273,6 +300,13 @@ class StockControllerTest {
 				.param("shares", "1000").param("price", "58.75").param("accountId", settlement.toString()))
 			.andExpect(redirectedUrl("/stocks"));
 		return jdbc.queryForObject("SELECT MAX(id) FROM trade", Long.class);
+	}
+
+	/** mvc.perform 之後測試執行緒的登入會被清掉；直接呼叫 Service 前重新登入。 */
+	private void loginAmy() {
+		UserDetails details = userDetailsService.loadUserByUsername("sc-amy");
+		SecurityContextHolder.getContext().setAuthentication(
+				UsernamePasswordAuthenticationToken.authenticated(details, null, details.getAuthorities()));
 	}
 
 	private static String token(String html) {

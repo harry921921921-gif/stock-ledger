@@ -13,7 +13,9 @@
 	第一次使用引導 2 借款（設計文件 2026-10-25-onboarding 3、3.2、4、7a；樣稿 onboarding.html loan）。做法和帳戶這一步一樣：
 	整頁只有一個表單 step-form，所有按鈕都用 formaction 送出它；editingId 是正在修改的已儲存借款；confirm 是確認區塊；
 	locked 時欄位鎖住，按鈕改用預覽時收起來的那份內容。
-	欄位和資金來源頁的新增借款共用 fragments/loan-fields（依還款方式顯示欄位）；不放擔保股票（記完股票再設定）。
+	欄位和資金來源頁的新增借款共用 fragments/loan-fields（依還款方式顯示欄位）；不放「從持股勾選」的擔保股票（記完股票在第 4 步設定），
+	新增時放「還沒記在系統裡的質押股票」表格（newPledges，按鈕送到 /welcome/loans/pledges?action=…，伺服器改好列存草稿再轉回來）；
+	修改已儲存的借款不放（不支援）。沒勾股票質押時送來的列一律不理（OnboardingService.checkLoan）。
 	shortfall：修改時借款改小、不夠付已經用它買的股票，列出要調整的交易（fragments/shortfall），按「確定修改」才存；
 	「取消」送到 go?to=loans，把剛才的內容放回修改表單。
 -->
@@ -42,6 +44,9 @@
 			<form id="step-form" class="form-card" method="post" th:action="@{${previewUrl}}" th:object="${form}">
 				<p class="edit-note" th:if="${editingId != null}">正在修改已儲存的資料；改好按「儲存修改」。剛才打到一半的內容會保留，改完自動放回來。</p>
 				<input type="hidden" th:if="${editingId != null}" name="editing" th:value="${editingId}">
+				<!-- 在欄位裡按 Enter 時瀏覽器用表單裡第一個送出按鈕：要是「儲存這筆借款」，不是質押股票表格的「拿掉」（同資金來源頁） -->
+				<button type="submit" class="default-submit" tabindex="-1" aria-hidden="true"
+					th:if="${!confirm and !shortfall}">儲存</button>
 
 				<fieldset class="step-fields" th:disabled="${locked}">
 					<label for="name">名稱</label>
@@ -51,6 +56,11 @@
 					<input id="bank" type="text" th:field="*{bank}" maxlength="50" placeholder="例如 玉山銀行">
 
 					<th:block th:replace="~{fragments/loan-fields :: newLoanFields(true)}"></th:block>
+
+					<!-- 只有新增借款能記（修改已儲存的借款不支援，設計文件 2026-11-04-pledged-stocks 4.1）；勾了股票質押才顯示 -->
+					<div class="collateral-box" data-show-source="pledge" data-show-for="true" th:if="${editingId == null}">
+						<th:block th:replace="~{fragments/loan-fields :: newPledges('/welcome/loans/pledges', true)}"></th:block>
+					</div>
 				</fieldset>
 
 				<div class="form-actions" th:if="${!confirm and !shortfall}">

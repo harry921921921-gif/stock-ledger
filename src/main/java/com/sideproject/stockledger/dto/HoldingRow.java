@@ -15,9 +15,10 @@ import java.math.BigDecimal;
  * @param annualDividend     預估年配息；沒有除息資料或年配息次數時為 null
  * @param dividendsPerYear   年配息次數（共用資料，管理者設定）；還沒設定為 null
  * @param sources            資金來源，例如「自有 40%、玉山質押 60%」
+ * @param pledgedShares      質押中的擔保股數（還在質押中的借款合計；沒有為 0）
  */
 public record HoldingRow(Long stockId, String code, String name, long shares, BigDecimal averageCost,
 		BigDecimal cost, BigDecimal price, BigDecimal marketValue, BigDecimal unrealized, BigDecimal returnPercent,
 		BigDecimal totalReturnPercent, BigDecimal dividends, BigDecimal annualDividend, Integer dividendsPerYear,
-		String sources) {
+		String sources, long pledgedShares) {
 }

@@ -5,11 +5,18 @@
 	新增借款（新撥款、依還款方式）的欄位：資金來源頁的新增借款（funding/loan-form.html）與第一次使用引導的借款這一步
 	（onboarding/loans.html）共用，依還款方式顯示欄位的做法只有這一份（app.js 的 data-show-source／data-show-for，
 	藏起來的欄位同時 disabled、不會送出）。放在 th:object="${form}" 的表單裡，名稱、銀行由外面的頁面放。
-	要的 model：repaymentMethods、myAccounts；資金來源頁另外要 myHoldings（擔保股票）。
+	要的 model：repaymentMethods、myAccounts；資金來源頁另外要 myHoldings（擔保股票）、maxNewPledges。
 
 	newLoanFields(wizard)
-	  wizard＝true（引導）：文字照引導樣稿（「怎麼還？」「擔保股票等記完股票再設定」），不放擔保股票與維持率門檻，
-	  欄位不加 required（沒填的由伺服器列在「還有欄位沒填好」裡）。
+	  wizard＝true（引導）：文字照引導樣稿（「怎麼還？」），股票質押勾選框旁說明「已經記在系統裡的股票在第 4 步設定擔保；
+	  還沒記的質押股票填在下面」；不放「從持股勾選」的擔保股票與維持率門檻（第 4 步設定），「還沒記在系統裡的質押股票」
+	  由 onboarding/loans.html 另外放 newPledges；欄位不加 required（沒填的由伺服器列在「還有欄位沒填好」裡）。
+
+	newPledges(pledgeUrl, wizard)
+	  「還沒記在系統裡的質押股票」表格（設計文件 2026-11-04-pledged-stocks 4.1）。「＋ 再加一檔」「拿掉」「帶入收盤價」
+	  都是 formaction 按鈕，把整個表單送到 pledgeUrl（?action=add｜remove&index=i｜prices），伺服器改好再畫回來，
+	  不用 JavaScript。價格旁的說明（priceNote）由 LoanService.fillPrices 填，不送回伺服器。
+	  wizard＝true（引導的借款這一步）：已經記在系統裡的持股在第 4 步「擔保」勾選，最後一句說明跟著換。
 -->
 <th:block th:fragment="newLoanFields(wizard)">
 	<input type="hidden" name="origin" value="NEW">
@@ -28,7 +35,7 @@
 	</div>
 
 	<label class="checkbox-line"><input type="checkbox" name="pledge" value="true"
-			th:checked="*{type?.name() == 'PLEDGE'}"> <th:block th:text="${wizard} ? '這是股票質押（擔保股票等記完股票再設定）'
+			th:checked="*{type?.name() == 'PLEDGE'}"> <th:block th:text="${wizard} ? '這是股票質押（已經記在系統裡的股票在第 4 步設定擔保；還沒記的質押股票填在下面）'
 			: '這是股票質押（要設定擔保股票、看維持率）'">這是股票質押（要設定擔保股票、看維持率）</th:block></label>
 
 	<label for="startDate">撥款日</label>
@@ -80,30 +87,67 @@
 
 	<div class="collateral-box" data-show-source="pledge" data-show-for="true" th:unless="${wizard}">
 		<p class="label-text">擔保股票（勾選拿去質押的持股）</p>
-		<p class="muted" th:if="${#lists.isEmpty(myHoldings)}">還沒有持股，先到股票頁記好股票，存好借款後再到資金來源頁設定擔保。</p>
+		<p class="muted" th:if="${#lists.isEmpty(myHoldings)}">系統裡還沒有持股；拿去質押的股票記在下面「還沒記在系統裡的質押股票」。</p>
 		<th:block th:unless="${#lists.isEmpty(myHoldings)}">
 			<p class="muted">勾了就是全部持股都拿去擔保；只押一部分就把股數改小，不能超過持股。</p>
 			<table class="table collateral-table">
 				<thead><tr><th></th><th>股票</th><th class="num">擔保股數</th><th class="num">收盤價</th></tr></thead>
 				<tbody>
-				<tr th:each="h, iter : ${myHoldings}">
+				<!-- 畫回表單時（例如按了「＋ 再加一檔」）保留已經勾的和改過的股數 -->
+				<tr th:each="h, iter : ${myHoldings}"
+						th:with="sent=${iter.index lt #lists.size(form.collateral()) ? form.collateral()[iter.index] : null}">
 					<td><input type="checkbox" th:name="|collateral[${iter.index}].stockId|" th:value="${h.stockId()}"
+							th:checked="${sent != null and sent.stockId() == h.stockId()}"
 							th:attr="aria-label=|拿 ${h.label()} 去擔保|"></td>
 					<td th:title="${h.label()}"><span th:text="${h.label()}">00830 國泰費城半導體</span><br>
 						<small class="muted" th:text="|持有 ${#numbers.formatInteger(h.shares(), 1, 'COMMA')}|">持有 1,000</small></td>
 					<td class="num"><input type="number" min="1" th:max="${h.shares()}" th:name="|collateral[${iter.index}].shares|"
-							th:value="${h.shares()}" th:attr="aria-label=|${h.label()} 的擔保股數|"></td>
+							th:value="${sent != null and sent.shares() != null} ? ${sent.shares()} : ${h.shares()}"
+							th:attr="aria-label=|${h.label()} 的擔保股數|"></td>
 					<td class="num" th:text="${h.price() != null} ? ${#numbers.formatDecimal(h.price(), 1, 'COMMA', 2, 'POINT')} : '—'">80.90</td>
 				</tr>
 				</tbody>
 			</table>
 		</th:block>
+		<th:block th:replace="~{fragments/loan-fields :: newPledges('/funding/new/pledges', false)}"></th:block>
 		<div class="threshold-row">
 			<label>提醒線（%）<input type="number" min="1" max="1000" step="0.01" th:field="*{warnPercent}" placeholder="150"></label>
 			<label>追繳線（%）<input type="number" min="1" max="1000" step="0.01" th:field="*{callPercent}" placeholder="130"></label>
 		</div>
 		<p class="muted">維持率 ＝ 擔保股票市值 ÷ 剩餘本金，存好後顯示在資金來源頁。</p>
 	</div>
+</th:block>
+
+<th:block th:fragment="newPledges(pledgeUrl, wizard)">
+	<p class="label-text">還沒記在系統裡的質押股票</p>
+	<p class="muted">質押後股票會從券商 App 的庫存消失，但還是你的資產。不記得成本就用質押那天的收盤價，報酬率會從那天開始算。</p>
+	<table class="table collateral-table pledge-rows" th:unless="${#lists.isEmpty(form.newPledges())}">
+		<thead><tr><th>股票代號</th><th class="num">股數</th><th>質押日期</th><th class="num">價格（每股）</th><th></th></tr></thead>
+		<tbody>
+		<tr th:each="row, it : ${form.newPledges()}">
+			<td><input type="text" th:name="|newPledges[${it.index}].stockCode|" th:value="${row.stockCode()}"
+					maxlength="10" placeholder="例如 00646" aria-label="股票代號"></td>
+			<td class="num"><input type="text" inputmode="numeric" placeholder="3000" aria-label="股數"
+					th:name="|newPledges[${it.index}].shares|" th:value="${row.shares()}"></td>
+			<td><input type="date" th:name="|newPledges[${it.index}].date|" th:value="${row.date()}"
+					aria-label="質押日期"></td>
+			<td class="num"><input type="text" inputmode="decimal" placeholder="75.15" aria-label="價格（每股）"
+					th:name="|newPledges[${it.index}].price|" th:value="${row.price()}">
+				<br th:if="${row.priceNote() != null}"><small class="muted" th:if="${row.priceNote() != null}"
+					th:text="${row.priceNote()}">證交所 2026-07-28 收盤價</small></td>
+			<td><button type="submit" class="btn btn-link" formnovalidate
+					th:formaction="@{${pledgeUrl}(action='remove',index=${it.index})}">拿掉</button></td>
+		</tr>
+		</tbody>
+	</table>
+	<div class="src-actions">
+		<button type="submit" class="btn btn-link" formnovalidate th:if="${#lists.size(form.newPledges()) lt maxNewPledges}"
+				th:formaction="@{${pledgeUrl}(action='add')}">＋ 再加一檔</button>
+		<button type="submit" class="btn btn-link" formnovalidate th:unless="${#lists.isEmpty(form.newPledges())}"
+				th:formaction="@{${pledgeUrl}(action='prices')}">帶入那天收盤價（價格空白的列）</button>
+	</div>
+	<p class="muted">存檔時每一檔記成一筆期初持股（日期＝質押日期、平均成本＝價格，不扣任何帳戶的錢），並設成這筆借款的擔保股票。<th:block
+			th:text="${wizard} ? '已經記在系統裡的股票，記完股票後在「擔保」那一步勾選。' : '已經記在系統裡的股票請在上面的持股清單勾選。'">已經記在系統裡的股票請在上面的持股清單勾選。</th:block></p>
 </th:block>
 </body>
 </html>

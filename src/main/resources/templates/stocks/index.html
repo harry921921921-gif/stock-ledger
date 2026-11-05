@@ -81,7 +81,8 @@
 					<thead><tr><th>股票</th><th class="num">股數</th><th class="num">平均成本</th><th class="num">收盤價</th><th class="num">市值</th><th class="num">帳面損益</th><th class="num">報酬率</th><th class="num">含息報酬率</th><th class="num">累計配息</th><th class="num">預估年配息</th><th>資金來源</th></tr></thead>
 					<tbody>
 					<tr th:each="h : ${v.holdings()}">
-						<td th:text="|${h.code()} ${h.name()}|">0056 元大高股息</td>
+						<td><span th:text="|${h.code()} ${h.name()}|">0056 元大高股息</span>
+							<span class="badge" th:if="${h.pledgedShares() > 0}" th:text="|質押中 ${#numbers.formatInteger(h.pledgedShares(), 1, 'COMMA')} 股|">質押中 1,000 股</span></td>
 						<td class="num" th:text="${#numbers.formatInteger(h.shares(), 1, 'COMMA')}">1,000</td>
 						<td class="num" th:text="${#numbers.formatDecimal(h.averageCost(), 1, 'COMMA', 2, 'POINT')}">50.02</td>
 						<td class="num" th:text="${h.price() != null} ? ${#numbers.formatDecimal(h.price(), 1, 'COMMA', 2, 'POINT')} : '—'">58.75</td>

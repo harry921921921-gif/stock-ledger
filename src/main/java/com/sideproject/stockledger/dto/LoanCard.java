@@ -32,6 +32,8 @@ import java.util.List;
  * @param amountAtDue        到期要還：到期一次還本金＋利息是本金＋利息估計，每月繳息是本金；沒有到期日為 null
  * @param accruedInterest    到期一次還本金＋利息：到今天為止還沒付的應計利息；其他方式為 null
  * @param dueSoon            到期前 30 天內或已過期、還沒還清（要提醒）
+ * @param collateralReleased 質押已還清（剩餘本金 0）：擔保股票已解除質押，不算維持率（設計文件 2026-11-04-pledged-stocks 第 6 節）
+ * @param settle             還沒還清的股票質押（到期一次還本金＋利息、每月繳息到期還本）：卡片用「還款／到期處理」取代「還本」（DR-054）
  */
 public record LoanCard(Long id, String name, String bank, String typeLabel, String originLabel, boolean credit,
 		boolean pledge, BigDecimal originalAmount, BigDecimal remaining, BigDecimal ratePercent,
@@ -42,5 +44,5 @@ public record LoanCard(Long id, String name, String bank, String typeLabel, Stri
 		String verdict, List<CollateralLine> collateral,
 		BigDecimal maintenancePercent, String maintenanceLevel, BigDecimal warnPercent, BigDecimal callPercent,
 		String repaymentLabel, BigDecimal monthlyPayment, LocalDate dueDate, Integer daysToDue, BigDecimal amountAtDue,
-		BigDecimal accruedInterest, boolean dueSoon) {
+		BigDecimal accruedInterest, boolean dueSoon, boolean collateralReleased, boolean settle) {
 }

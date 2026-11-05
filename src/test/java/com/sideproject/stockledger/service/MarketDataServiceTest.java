@@ -30,6 +30,9 @@ class MarketDataServiceTest {
 	@Autowired
 	private JdbcTemplate jdbc;
 
+	@Autowired
+	private org.springframework.transaction.support.TransactionTemplate outer;
+
 	@BeforeEach
 	void setUp() {
 		jdbc.update("DELETE FROM cash_movement_revision");
@@ -62,6 +65,87 @@ class MarketDataServiceTest {
 			.containsEntry("kind", "PRICES")
 			.containsEntry("row_count", 2)
 			.containsEntry("result", "成功");
+	}
+
+	@Test
+	void closeOnUsesStoredPrice() {
+		service.refreshPrices();
+		twse.monthlyCalls = 0;
+
+		assertThat(service.closeOn("2330", LocalDate.of(2026, 10, 21))).hasValueSatisfying(
+				v -> assertThat(v).isEqualByComparingTo("2420"));
+		assertThat(twse.monthlyCalls).isZero();
+	}
+
+	@Test
+	void closeOnFetchesMonthAndStores() {
+		service.refreshPrices();
+		twse.monthly = TwseParserTest.MONTHLY;
+
+		assertThat(service.closeOn("0056", LocalDate.of(2026, 7, 28))).hasValueSatisfying(
+				v -> assertThat(v).isEqualByComparingTo("75.15"));
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM stock_price p JOIN stock s ON s.id = p.stock_id "
+				+ "WHERE s.code = '0056' AND p.trade_date BETWEEN '2026-07-01' AND '2026-07-31'", Integer.class)).isEqualTo(2);
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM price_update_log WHERE kind = 'HISTORY' "
+				+ "AND result = '成功'", Integer.class)).isEqualTo(1);
+	}
+
+	@Test
+	void closeOnHolidayIsEmpty() {
+		service.refreshPrices();
+		twse.monthly = TwseParserTest.MONTHLY;
+
+		assertThat(service.closeOn("0056", LocalDate.of(2026, 7, 26))).isEmpty();
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM stock_price WHERE trade_date = '2026-07-26'",
+				Integer.class)).isZero();
+	}
+
+	@Test
+	void closeOnUnknownStockIsEmptyWithoutFetch() {
+		assertThat(service.closeOn("1234", LocalDate.of(2026, 7, 28))).isEmpty();
+		assertThat(twse.monthlyCalls).isZero();
+	}
+
+	@Test
+	void closeOnNetworkErrorIsEmptyAndLogged() {
+		service.refreshPrices();
+		twse.failure = new IllegalStateException("連不上");
+
+		assertThat(service.closeOn("0056", LocalDate.of(2026, 7, 28))).isEmpty();
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM price_update_log WHERE kind = 'HISTORY' "
+				+ "AND result LIKE '失敗%'", Integer.class)).isEqualTo(1);
+	}
+
+	/** 價格超出欄位範圍：存不進去，但抓到的價格仍回傳，失敗紀錄要留下來。 */
+	@Test
+	void closeOnSaveFailureStillReturnsPriceAndLogsFailure() {
+		service.refreshPrices();
+		twse.monthly = TwseParserTest.MONTHLY.replace("\"75.15\",\"-1.05\"", "\"999,999,999.00\",\"-1.05\"");
+
+		assertThat(service.closeOn("0056", LocalDate.of(2026, 7, 28))).hasValueSatisfying(
+				v -> assertThat(v).isEqualByComparingTo("999999999"));
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM stock_price WHERE trade_date = '2026-07-28'",
+				Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM price_update_log WHERE kind = 'HISTORY' "
+				+ "AND result LIKE '失敗%'", Integer.class)).isEqualTo(1);
+	}
+
+	/** 在呼叫端的交易裡呼叫：不管成功或失敗，呼叫端自己的寫入都還能 commit。 */
+	@Test
+	void closeOnInsideOuterTransactionDoesNotBreakIt() {
+		service.refreshPrices();
+		twse.monthly = TwseParserTest.MONTHLY.replace("\"75.15\",\"-1.05\"", "\"999,999,999.00\",\"-1.05\"");
+
+		outer.executeWithoutResult(status -> {
+			assertThat(service.closeOn("0056", LocalDate.of(2026, 7, 28))).isPresent();
+			twse.monthly = TwseParserTest.MONTHLY;
+			assertThat(service.closeOn("0056", LocalDate.of(2026, 7, 27))).isPresent();
+			jdbc.update("INSERT INTO price_update_log (run_at, kind, row_count, result) "
+					+ "VALUES (NOW(), 'PRICES', 0, '外層寫入')");
+		});
+
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM price_update_log WHERE result = '外層寫入'",
+				Integer.class)).isEqualTo(1);
 	}
 
 	/** 同一天再抓一次不重複寫入；名稱改了就更新。 */

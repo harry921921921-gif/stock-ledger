@@ -32,6 +32,7 @@ import com.sideproject.stockledger.dto.ConfirmRow;
 import com.sideproject.stockledger.dto.LoanEditResult;
 import com.sideproject.stockledger.dto.LoanForm;
 import com.sideproject.stockledger.dto.LoanInput;
+import com.sideproject.stockledger.dto.NewPledgeLine;
 import com.sideproject.stockledger.dto.OnboardingSummary;
 import com.sideproject.stockledger.dto.OpeningForm;
 import com.sideproject.stockledger.dto.SavedRow;
@@ -298,10 +299,27 @@ public class OnboardingService {
 			"startPrincipal", "annualRatePercent", "monthlyPayment", "payDay", "remainingPeriods", "dueDate",
 			"payAccountId", "fee");
 
-	/** 新增借款（呼叫正式頁面同一個 create，規則與訊息一樣）。 */
+	/**
+	 * 引導裡「這檔已經記在系統裡了」的說法：引導的借款頁上面沒有持股清單，現有持股在第 4 步「擔保」勾選。
+	 * 規則仍只在 LoanService（{@link LoanService#ALREADY_RECORDED}），這裡只換說法（{@link #wizardWording}）。
+	 */
+	static final String ALREADY_RECORDED_WIZARD = "這檔已經記在系統裡了，請在第 4 步「擔保」勾選";
+
+	/** 新增借款（呼叫正式頁面同一個 create，規則一樣；「已經記在系統裡」換成引導的說法）。 */
 	@Transactional
 	public Loan addLoan(LoanForm form) {
-		return loans.create(form);
+		try {
+			return loans.create(form);
+		}
+		catch (LoanValidationException ex) {
+			throw wizardWording(ex);
+		}
+	}
+
+	/** LoanService 的訊息換成引導的說法；只換「已經記在系統裡」那一句，其他原樣。 */
+	private static LoanValidationException wizardWording(LoanValidationException ex) {
+		return LoanService.ALREADY_RECORDED.equals(ex.getMessage())
+				? new LoanValidationException(ALREADY_RECORDED_WIZARD) : ex;
 	}
 
 	/**
@@ -317,36 +335,58 @@ public class OnboardingService {
 	/**
 	 * 借款這一步的「儲存」（預覽與確認儲存共用）：先看格式（綁定錯誤，訊息用 messages.properties），
 	 * 都過了才跑 LoanService 的檢查（和正式的新增借款同一段，訊息一樣）；沒有錯誤時附上確認區塊的提醒。
-	 * 引導裡不設定擔保股票（設計文件 3：「擔保股票等記完股票再設定」）：表單帶來的擔保股票、維持率門檻一律拿掉。
+	 * 引導裡不勾現有持股當擔保（現有持股在第 4 步「擔保」設定，設計文件 3）：表單帶來的擔保持股、維持率門檻一律拿掉。
+	 * 「還沒記在系統裡的質押股票」（newPledges）新增時保留，和資金來源頁走同一段檢查（設計文件 2026-11-04-pledged-stocks 4.1）；
+	 * 修改已儲存的借款（id 不是 null）不支援，一律拿掉（LoanService.edit 不處理）。
 	 * 修改時也用新增的檢查：引導裡的借款都是新寫法的新撥款，修改才會遇到的規則（例如借款改小不夠付股票）存檔時由 edit 再擋。
 	 * 不加交易，理由同 {@link #accountErrors}。
 	 */
-	public LoanInput checkLoan(LoanForm submitted, Errors formErrors) {
+	public LoanInput checkLoan(Long id, LoanForm submitted, Errors formErrors) {
 		// 格式錯到建不出表單（submitted 為 null）時一定有綁定錯誤，不會往下檢查
-		LoanForm form = submitted == null ? null : withoutCollateral(submitted);
+		LoanForm form = submitted == null ? null : withoutCollateral(submitted, id == null);
 		List<String> errors = new ArrayList<>(messagesOf(formErrors, LOAN_FIELDS));
 		if (errors.isEmpty() && form != null) {
 			try {
 				loans.validate(form);
 			}
 			catch (LoanValidationException ex) {
-				errors.add(ex.getMessage());
+				errors.add(wizardWording(ex).getMessage());
 			}
 		}
 		return new LoanInput(form, errors, errors.isEmpty() ? loanWarnings(form) : List.of());
 	}
 
-	private static LoanForm withoutCollateral(LoanForm f) {
+	/**
+	 * 拿掉擔保持股與門檻。「還沒記在系統裡的質押股票」只有新增（keepNewPledges）而且是股票質押時保留：
+	 * 沒勾股票質押時畫面上的表格是藏起來的（瀏覽器不送），沒有 JavaScript 時送來的列也一樣不理，不擋存檔。
+	 */
+	private static LoanForm withoutCollateral(LoanForm f, boolean keepNewPledges) {
+		boolean keep = keepNewPledges && f.type() == LoanType.PLEDGE;
 		return new LoanForm(f.name(), f.type(), f.bank(), f.origin(), f.originalAmount(), f.startDate(),
 				f.startPrincipal(), f.annualRatePercent(), f.disburseAccountId(), f.payAccountId(), f.payDay(),
 				f.remainingPeriods(), f.firstPeriod(), f.dueDate(), f.repaymentMethod(), f.monthlyPayment(), f.fee(),
-				List.of(), null, null);
+				List.of(), null, null, keep ? f.newPledges() : List.of());
 	}
 
-	/** 新借款表單的預設值：信貸、新撥款、每月固定還款、撥款日今天（和正式的新增借款一樣）。 */
+	/** 新借款表單的預設值：信貸、新撥款、每月固定還款、撥款日今天、一列空的質押股票（和正式的新增借款一樣）。 */
 	public LoanForm blankLoan() {
 		return new LoanForm(null, LoanType.CREDIT, null, LoanOrigin.NEW, null, loans.today(), null, null, null, null,
-				null, null, null, null, RepaymentMethod.MONTHLY_FIXED, null, null, List.of(), null, null);
+				null, null, null, null, RepaymentMethod.MONTHLY_FIXED, null, null, List.of(), null, null,
+				List.of(NewPledgeLine.blank()));
+	}
+
+	/** 「還沒記在系統裡的質押股票」最多幾列（到了就不顯示「＋ 再加一檔」）。 */
+	public int maxNewPledges() {
+		return LoanService.MAX_NEW_PLEDGES;
+	}
+
+	/**
+	 * 質押股票表格的「＋ 再加一檔」（add）、「拿掉」（remove，第 index 列）、「帶入收盤價」（prices）：
+	 * 和資金來源頁同一個 {@link LoanService#changePledgeRows}，不檢查、不存。
+	 * 不加交易：帶入收盤價要連網路，不放在資料庫交易裡（理由見 {@link LoanService#fillPrices}）。
+	 */
+	public List<NewPledgeLine> changePledgeRows(List<NewPledgeLine> lines, String action, Integer index) {
+		return loans.changePledgeRows(lines, action, index);
 	}
 
 	/** 修改已儲存借款時放進表單的內容；別人的、不存在或已作廢的借款 → 404。 */
@@ -1145,7 +1185,18 @@ public class OnboardingService {
 		}
 		rows.add(new ConfirmRow("往來帳戶", accountName(form.payAccountId())));
 		rows.add(new ConfirmRow("開辦費、手續費", amount(form.fee())));
+		if (form.type() == LoanType.PLEDGE) {
+			// 每檔一行「質押的股票　00646 3,000 股（2026-07-28，每股 75.15）」（設計文件 2026-11-04-pledged-stocks 4.2）
+			form.newPledges().stream().filter(Objects::nonNull).filter(NewPledgeLine::filled)
+				.forEach(l -> rows.add(new ConfirmRow("質押的股票", pledgeLine(l))));
+		}
 		return rows;
+	}
+
+	private String pledgeLine(NewPledgeLine l) {
+		String shares = l.shares() == null ? "" : money.plain(BigDecimal.valueOf(l.shares()));
+		return (l.stockCode() == null ? "" : l.stockCode()) + " " + shares + " 股（" + date(l.date()) + "，每股 "
+				+ decimal(l.price()) + "）";
 	}
 
 	/** 股票：一次買進列交割戶，目前持有（期初持股）不用；資金來源列借款名稱，沒選是自己的錢。 */
