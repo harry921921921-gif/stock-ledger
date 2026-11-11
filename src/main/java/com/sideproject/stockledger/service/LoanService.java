@@ -9,6 +9,7 @@ import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -181,8 +182,10 @@ public class LoanService {
 			Stock stock = stocks.findById(pick.stockId()).orElseThrow(() -> new NotFoundException("找不到這檔股票"));
 			setCollateral(loan.getId(), stock.getCode(), pick.shares());
 		}
+		// 還沒記在系統裡的質押股票：每一列記成一筆期初持股（不扣錢、沒有資金來源）。這筆借款這檔的擔保
+		// ＝上面勾選的股數＋這幾列加總（同一檔可以填好幾列，DR-055）。全部期初持股記好才設擔保，擔保檢查看得到新的持股。
+		Map<String, Long> pledgedRows = new LinkedHashMap<>();
 		for (NewPledgeLine line : filledPledges(form)) {
-			// 還沒記在系統裡的質押股票：記成期初持股（不扣錢、沒有資金來源），再設成這筆借款的擔保（設計文件 6）
 			try {
 				tradeService.create(new TradeForm(TradeType.OPENING, line.date(), line.stockCode(), null, line.shares(),
 						line.price(), null, null, null, List.of()));
@@ -190,8 +193,14 @@ public class LoanService {
 			catch (TradeValidationException ex) {
 				throw new LoanValidationException(line.stockCode() + "：" + ex.getMessage());
 			}
-			setCollateral(loan.getId(), line.stockCode(), line.shares());
+			pledgedRows.merge(line.stockCode(), line.shares(), Long::sum);
 		}
+		pledgedRows.forEach((code, shares) -> {
+			Long stockId = stocks.findByCode(code).orElseThrow().getId();
+			long picked = collaterals.findByUserIdAndLoanIdAndStockId(userId, loan.getId(), stockId)
+				.map(PledgeCollateral::getShares).orElse(0L);
+			setCollateral(loan.getId(), code, picked + shares);
+		});
 		if (form.type() == LoanType.PLEDGE && (form.warnPercent() != null || form.callPercent() != null)) {
 			setThresholds(loan.getId(), form.warnPercent() == null ? DEFAULT_WARN : form.warnPercent(),
 					form.callPercent() == null ? DEFAULT_CALL : form.callPercent());
@@ -261,8 +270,6 @@ public class LoanService {
 
 	private static final long MAX_PLEDGE_SHARES = 1_000_000_000_000L;
 
-	static final String ALREADY_RECORDED = "這檔已經記在系統裡了，請在上面的持股清單勾選";
-
 	static final String NO_CLOSE_NOTE = "那天沒有收盤價（休市或還沒有資料），請自己填";
 
 	private static List<NewPledgeLine> filledPledges(LoanForm form) {
@@ -270,19 +277,18 @@ public class LoanService {
 	}
 
 	/**
-	 * 每一列的檢查（create 與 validate 共用，訊息沿用股票頁）：代號是系統裡的股票、股數正整數、有質押日期、
-	 * 這檔沒有任何沒作廢的交易（避免同一批股票記兩次）、同一檔不能兩列、價格大於 0。
+	 * 每一列的檢查（create 與 validate 共用，訊息沿用股票頁）：代號是系統裡的股票、股數正整數、有質押日期、價格大於 0。
+	 * 只要求輸入正確：這檔已經有交易、或同一檔填好幾列都照記（記的是過去的狀態，同一檔可以分批質押，DR-055）。
 	 */
 	private void checkNewPledges(List<NewPledgeLine> lines) {
 		if (lines.size() > MAX_NEW_PLEDGES) {
-			throw new LoanValidationException("還沒記在系統裡的質押股票最多 " + MAX_NEW_PLEDGES + " 檔");
+			throw new LoanValidationException("還沒記在系統裡的質押股票最多 " + MAX_NEW_PLEDGES + " 列");
 		}
-		Set<Long> seen = new HashSet<>();
 		for (NewPledgeLine line : lines) {
 			if (line.stockCode() == null) {
 				throw new LoanValidationException("請輸入股票代號");
 			}
-			Stock stock = stocks.findByCode(line.stockCode())
+			stocks.findByCode(line.stockCode())
 				.orElseThrow(() -> new LoanValidationException("找不到這個上市股票代號：" + line.stockCode()));
 			if (line.shares() == null || line.shares() <= 0 || line.shares() > MAX_PLEDGE_SHARES) {
 				throw new LoanValidationException("請輸入股數（正整數）");
@@ -295,12 +301,6 @@ public class LoanService {
 			}
 			if (line.date().isBefore(MIN_DATE)) {
 				throw new LoanValidationException("質押日期要在 2000-01-01 之後");
-			}
-			if (tradeService.hasTrades(stock.getId())) {
-				throw new LoanValidationException(ALREADY_RECORDED);
-			}
-			if (!seen.add(stock.getId())) {
-				throw new LoanValidationException("同一檔股票只能填一列：" + line.stockCode());
 			}
 			if (line.price() == null || line.price().signum() <= 0) {
 				throw new LoanValidationException("請輸入價格");

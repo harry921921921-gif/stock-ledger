@@ -179,7 +179,7 @@ class TradeServiceTest {
 			.hasMessage("賣出股數超過持有股數");
 	}
 
-	/** 期初持股：總成本 ＝ 股數 × 平均成本（含手續費，四捨五入到元）；每檔最多一筆、要早於其他交易。 */
+	/** 期初持股：總成本 ＝ 股數 × 平均成本（含手續費，四捨五入到元），不扣錢；同一檔可以有好幾筆（DR-055）。 */
 	@Test
 	void openingRules() {
 		Trade opening = service.create(new TradeForm(TradeType.OPENING, today.minusDays(10), "0056", null, 15000L,
@@ -187,19 +187,24 @@ class TradeServiceTest {
 		assertThat(opening.getAmount()).isEqualByComparingTo("499995");
 		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cash_movement", Integer.class)).isZero();
 
-		assertThatThrownBy(() -> service.create(new TradeForm(TradeType.OPENING, today.minusDays(20), "0056", null,
-				1L, BigDecimal.ONE, null, null, null, List.of()))).hasMessage("這檔股票已經有期初持股");
+		service.create(new TradeForm(TradeType.OPENING, today.minusDays(20), "0056", null, 1L, BigDecimal.ONE, null,
+				null, null, List.of()));
 		service.create(buy(today.minusDays(5), 1000, "58.75", null, List.of()));
-		Long other = jdbc.queryForObject("SELECT id FROM stock WHERE code = '0056'", Long.class);
-		assertThat(other).isEqualTo(etf);
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM trade WHERE type = 'OPENING'", Integer.class)).isEqualTo(2);
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cash_movement", Integer.class)).isEqualTo(1);
 	}
 
+	/** 期初持股可以晚於這檔的買進（例如之後才質押、用質押日記的那一批，DR-055）；賣出照樣不能超過當時持股。 */
 	@Test
-	void openingMustBeBeforeOtherTrades() {
+	void openingMayFollowOtherTrades() {
 		service.create(buy(today.minusDays(5), 1000, "58.75", null, List.of()));
+		service.create(new TradeForm(TradeType.OPENING, today, "0056", null, 1000L, new BigDecimal("50"), null, null,
+				null, List.of()));
 
-		assertThatThrownBy(() -> service.create(new TradeForm(TradeType.OPENING, today, "0056", null, 1000L,
-				new BigDecimal("50"), null, null, null, List.of()))).hasMessage("期初持股要早於這檔股票的所有交易");
+		assertThatThrownBy(() -> service.create(new TradeForm(TradeType.SELL, today.minusDays(1), "0056", settlement,
+				1001L, new BigDecimal("60"), null, null, null, List.of())))
+			.isInstanceOf(TradeValidationException.class)
+			.hasMessage("賣出股數超過持有股數");
 	}
 
 	@Test

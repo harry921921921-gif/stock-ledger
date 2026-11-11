@@ -126,35 +126,48 @@ class PledgedLoanCreateTest {
 		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM source_allocation", Integer.class)).isZero();
 	}
 
-	/** 這檔已經有一筆買進：整筆借款都不存。 */
+	/** 這檔已經有一筆更晚的買進（DR-055，記的是過去的狀態）：照樣再記一筆期初持股，擔保只算這次質押的股數。 */
 	@Test
-	void existingStockRowRejectsWholeLoan() {
-		trades.create(new TradeForm(TradeType.BUY, PLEDGE_DAY, "00646", settlement, 1000L, new BigDecimal("75"), null,
-				null, null, List.of()));
-		int loansBefore = count("loan");
-		int tradesBefore = count("trade");
-		int collateralBefore = count("pledge_collateral");
+	void existingStockRowAddsAnotherOpening() {
+		trades.create(new TradeForm(TradeType.BUY, PLEDGE_DAY.plusDays(1), "00646", settlement, 1000L,
+				new BigDecimal("75"), null, null, null, List.of()));
 
-		assertThatThrownBy(() -> loans.create(pledgeForm(List.of(line("00662", 2000L, "115.70"),
-				line("00646", 3000L, "75.15")))))
-			.isInstanceOf(LoanValidationException.class)
-			.hasMessage("這檔已經記在系統裡了，請在上面的持股清單勾選");
-		assertThatThrownBy(() -> loans.validate(pledgeForm(List.of(line("00646", 3000L, "75.15")))))
-			.hasMessage("這檔已經記在系統裡了，請在上面的持股清單勾選");
+		loans.validate(pledgeForm(List.of(line("00646", 3000L, "75.15"))));
+		Loan loan = loans.create(pledgeForm(List.of(line("00662", 2000L, "115.70"), line("00646", 3000L, "75.15"))));
 
-		assertThat(count("loan")).isEqualTo(loansBefore);
-		assertThat(count("trade")).isEqualTo(tradesBefore);
-		assertThat(count("pledge_collateral")).isEqualTo(collateralBefore);
+		assertThat(jdbc.queryForList("SELECT CONCAT(t.type, '|', t.shares) FROM trade t JOIN stock s ON s.id = t.stock_id "
+				+ "WHERE s.code = '00646' ORDER BY t.trade_date", String.class))
+			.containsExactly("OPENING|3000", "BUY|1000");
+		assertThat(jdbc.queryForList("SELECT CONCAT(s.code, '|', c.shares) FROM pledge_collateral c "
+				+ "JOIN stock s ON s.id = c.stock_id WHERE c.loan_id = ? ORDER BY s.code", String.class, loan.getId()))
+			.containsExactly("00646|3000", "00662|2000");
 	}
 
+	/** 同一檔分兩批質押給兩筆借款：各自一筆期初持股、各自的擔保。 */
 	@Test
-	void duplicateRowRejected() {
-		assertThatThrownBy(() -> loans.create(pledgeForm(List.of(line("00646", 3000L, "75.15"),
-				line(" 00646 ", 1000L, "75.15")))))
-			.isInstanceOf(LoanValidationException.class)
-			.hasMessageContaining("同一檔股票只能填一列");
-		assertThat(count("loan")).isZero();
-		assertThat(count("trade")).isZero();
+	void sameStockPledgedToTwoLoans() {
+		Loan first = loans.create(pledgeForm(List.of(line("00646", 3000L, "75.15"))));
+		Loan second = loans.create(pledgeForm(List.of(new NewPledgeLine("00646", 4000L, PLEDGE_DAY.plusDays(3),
+				new BigDecimal("80"), null))));
+
+		assertThat(jdbc.queryForList("SELECT CONCAT(t.trade_date, '|', t.shares, '|', t.amount) FROM trade t "
+				+ "ORDER BY t.trade_date", String.class))
+			.containsExactly("2026-07-28|3000|225450.0000", "2026-07-31|4000|320000.0000");
+		assertThat(jdbc.queryForObject("SELECT shares FROM pledge_collateral WHERE loan_id = ?", Long.class,
+				first.getId())).isEqualTo(3000L);
+		assertThat(jdbc.queryForObject("SELECT shares FROM pledge_collateral WHERE loan_id = ?", Long.class,
+				second.getId())).isEqualTo(4000L);
+	}
+
+	/** 同一筆借款同一檔填兩列（不同日期、價格）：兩筆期初持股，擔保是兩列加總。 */
+	@Test
+	void sameStockTwoRowsAddUp() {
+		Loan loan = loans.create(pledgeForm(List.of(line("00646", 3000L, "75.15"),
+				new NewPledgeLine(" 00646 ", 1000L, PLEDGE_DAY.minusDays(7), new BigDecimal("70"), null))));
+
+		assertThat(count("trade")).isEqualTo(2);
+		assertThat(jdbc.queryForObject("SELECT shares FROM pledge_collateral WHERE loan_id = ?", Long.class,
+				loan.getId())).isEqualTo(4000L);
 	}
 
 	@Test

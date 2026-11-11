@@ -799,10 +799,38 @@ class OnboardingControllerTest {
 			.andExpect(content().string(containsString("證交所 2026-07-28 收盤價")));
 	}
 
-	/** 這檔已經記在系統裡（前一筆質押記過）：引導的說法是「請在第 4 步「擔保」勾選」，不是資金來源頁的「上面的持股清單」。 */
+	/**
+	 * 先沒勾股票質押送出（例如欄位沒填完、畫回表單），質押股票列被拿掉；之後勾股票質押時仍要直接看到一列空白欄位，
+	 * 不能只剩「＋ 再加一檔」（使用者 2026-11-09 回報質押0728 因此漏記擔保股票）。
+	 */
 	@Test
 	@WithUserDetails(value = "ob-cy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
-	void wizardAlreadyRecordedPointsToStep4() throws Exception {
+	void pledgeRowsAlwaysShowOneBlankRow() throws Exception {
+		MockHttpSession session = new MockHttpSession();
+		Long account = saveAccount(session, "玉山交割戶", "");
+
+		MvcResult result = mvc.perform(post("/welcome/loans/preview").param("name", "質押0728")
+			.param("bank", "玉山銀行")
+			.param("origin", "NEW")
+			.param("repaymentMethod", "BULLET")
+			.param("startDate", PLEDGE_DAY.toString())
+			.param("payAccountId", account.toString())
+			.session(session)
+			.with(csrf()))
+			.andExpect(status().isOk())
+			.andReturn();
+
+		assertThat(errors(result)).isNotEmpty();
+		assertThat(result.getResponse().getContentAsString()).contains("name=\"newPledges[0].stockCode\"")
+			.contains("name=\"newPledges[0].shares\"")
+			.contains("name=\"newPledges[0].date\"")
+			.contains("name=\"newPledges[0].price\"");
+	}
+
+	/** 同一檔分批質押（DR-055）：前一筆質押記過 00646，下一筆質押再記 00646 也能存，各自一筆期初持股與擔保。 */
+	@Test
+	@WithUserDetails(value = "ob-cy", setupBefore = TestExecutionEvent.TEST_EXECUTION)
+	void wizardSecondPledgeOfSameStockSaves() throws Exception {
 		MockHttpSession session = new MockHttpSession();
 		Long account = saveAccount(session, "玉山交割戶", "");
 		insertPledgeStocks();
@@ -814,9 +842,18 @@ class OnboardingControllerTest {
 		MvcResult again = mvc.perform(pledgePost("/welcome/loans/preview", account).session(session))
 			.andExpect(status().isOk())
 			.andReturn();
+		assertThat(errors(again)).isNullOrEmpty();
+		mvc.perform(post("/welcome/loans/save").param("formToken", (String) again.getModelAndView().getModel()
+			.get("formToken")).session(session).with(csrf()))
+			.andExpect(redirectedUrl("/welcome/loans"));
 
-		assertThat(errors(again)).containsExactly("這檔已經記在系統裡了，請在第 4 步「擔保」勾選");
-		assertThat(loanCount()).isEqualTo(1);
+		assertThat(loanCount()).isEqualTo(2);
+		assertThat(jdbc.queryForList("SELECT CONCAT(t.type, '|', t.shares) FROM trade t JOIN stock s ON s.id = t.stock_id "
+				+ "WHERE s.code = '00646' AND t.voided = FALSE", String.class))
+			.containsExactly("OPENING|3000", "OPENING|3000");
+		assertThat(jdbc.queryForList("SELECT c.shares FROM pledge_collateral c JOIN stock s ON s.id = c.stock_id "
+				+ "WHERE s.code = '00646' ORDER BY c.loan_id", Long.class))
+			.containsExactly(3000L, 3000L);
 	}
 
 	/** 修改已儲存的借款：送來的質押股票列不理（只有新增能記），不會多出期初持股。 */

@@ -492,20 +492,8 @@ public class TradeService {
 	private void checkConsistency(Trade trade, Set<Long> loanIds, List<Trade> active,
 			Supplier<Portfolio> portfolioOf) {
 		Long userId = currentUser.id();
-		List<Trade> sameStock = active.stream().filter(t -> t.getStockId().equals(trade.getStockId())).toList();
-		List<Trade> openings = sameStock.stream().filter(t -> t.getType() == TradeType.OPENING).toList();
-		if (openings.size() > 1) {
-			throw new TradeValidationException("這檔股票已經有期初持股");
-		}
-		if (!openings.isEmpty()) {
-			LocalDate openingDate = openings.get(0).getTradeDate();
-			boolean earlier = sameStock.stream()
-				.anyMatch(t -> t.getType() != TradeType.OPENING && !t.getTradeDate().isAfter(openingDate));
-			if (earlier) {
-				throw new TradeValidationException(trade.getType() == TradeType.OPENING ? "期初持股要早於這檔股票的所有交易"
-						: "日期要晚於這檔股票的期初持股日期（" + openingDate + "）");
-			}
-		}
+		// 期初持股記的是過去的狀態：同一檔可以有好幾筆、日期也可以晚於買進（例如分批質押，DR-055），
+		// 照日期當成不扣錢的買進算；只檢查算出來的持股（賣出不超過、擔保不超過）。
 		Portfolio portfolio;
 		try {
 			portfolio = portfolioOf.get();
@@ -633,12 +621,6 @@ public class TradeService {
 	@Transactional(readOnly = true)
 	public Map<Long, BigDecimal> latestPrices(Collection<Long> stockIds) {
 		return latestPrices(stockIds, today());
-	}
-
-	/** 這檔股票有沒有任何沒作廢的交易（新增質押時「還沒記在系統裡」的檢查，設計文件 2026-11-04-pledged-stocks 6）。 */
-	@Transactional(readOnly = true)
-	public boolean hasTrades(Long stockId) {
-		return trades.existsByUserIdAndStockIdAndVoidedFalse(currentUser.id(), stockId);
 	}
 
 	/** 沒作廢的交易裡有沒有用到這筆借款當資金來源（借款作廢前檢查）。 */

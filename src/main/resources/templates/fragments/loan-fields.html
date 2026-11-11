@@ -121,7 +121,8 @@
 <th:block th:fragment="newPledges(pledgeUrl, wizard)">
 	<p class="label-text">還沒記在系統裡的質押股票</p>
 	<p class="muted">質押後股票會從券商 App 的庫存消失，但還是你的資產。不記得成本就用質押那天的收盤價，報酬率會從那天開始算。</p>
-	<table class="table collateral-table pledge-rows" th:unless="${#lists.isEmpty(form.newPledges())}">
+	<!-- 至少畫一列空白欄位：沒勾股票質押送出過（列被拿掉）之後再勾，也要直接看到欄位，不能只剩「＋ 再加一檔」 -->
+	<table class="table collateral-table pledge-rows">
 		<thead><tr><th>股票代號</th><th class="num">股數</th><th>質押日期</th><th class="num">價格（每股）</th><th></th></tr></thead>
 		<tbody>
 		<tr th:each="row, it : ${form.newPledges()}">
@@ -138,15 +139,23 @@
 			<td><button type="submit" class="btn btn-link" formnovalidate
 					th:formaction="@{${pledgeUrl}(action='remove',index=${it.index})}">拿掉</button></td>
 		</tr>
+		<tr th:if="${#lists.isEmpty(form.newPledges())}">
+			<td><input type="text" name="newPledges[0].stockCode" maxlength="10" placeholder="例如 00646" aria-label="股票代號"></td>
+			<td class="num"><input type="text" inputmode="numeric" placeholder="3000" aria-label="股數" name="newPledges[0].shares"></td>
+			<td><input type="date" name="newPledges[0].date" aria-label="質押日期"></td>
+			<td class="num"><input type="text" inputmode="decimal" placeholder="75.15" aria-label="價格（每股）"
+					name="newPledges[0].price"></td>
+			<td></td>
+		</tr>
 		</tbody>
 	</table>
 	<div class="src-actions">
 		<button type="submit" class="btn btn-link" formnovalidate th:if="${#lists.size(form.newPledges()) lt maxNewPledges}"
 				th:formaction="@{${pledgeUrl}(action='add')}">＋ 再加一檔</button>
-		<button type="submit" class="btn btn-link" formnovalidate th:unless="${#lists.isEmpty(form.newPledges())}"
+		<button type="submit" class="btn btn-link" formnovalidate
 				th:formaction="@{${pledgeUrl}(action='prices')}">帶入那天收盤價（價格空白的列）</button>
 	</div>
-	<p class="muted">存檔時每一檔記成一筆期初持股（日期＝質押日期、平均成本＝價格，不扣任何帳戶的錢），並設成這筆借款的擔保股票。<th:block
+	<p class="muted">存檔時每一列記成一筆期初持股（日期＝質押日期、平均成本＝價格，不扣任何帳戶的錢），並設成這筆借款的擔保股票；同一檔在不同日期質押的，各填一列。<th:block
 			th:text="${wizard} ? '已經記在系統裡的股票，記完股票後在「擔保」那一步勾選。' : '已經記在系統裡的股票請在上面的持股清單勾選。'">已經記在系統裡的股票請在上面的持股清單勾選。</th:block></p>
 </th:block>
 </body>

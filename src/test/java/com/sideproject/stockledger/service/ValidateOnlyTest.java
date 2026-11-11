@@ -225,14 +225,16 @@ class ValidateOnlyTest {
 		assertThat(count("trade")).isZero();
 	}
 
+	/** 期初持股晚於買進（DR-055）：validate 與 create 一樣都放行。 */
 	@Test
-	void tradeValidateRejectsLateOpeningLikeCreate() {
+	void tradeValidateAcceptsLateOpeningLikeCreate() {
 		trades.create(buy(settlement(), 1000L, new BigDecimal("30"), List.of()));
 		TradeForm opening = new TradeForm(TradeType.OPENING, today, "0056", null, 2000L, new BigDecimal("28"), null,
 				null, null, List.of());
 
-		assertSameMessage(() -> trades.validate(opening), () -> trades.create(opening), "期初持股要早於這檔股票的所有交易");
-		assertThat(count("trade")).isEqualTo(1);
+		trades.validate(opening);
+		trades.create(opening);
+		assertThat(count("trade")).isEqualTo(2);
 	}
 
 	@Test

@@ -299,27 +299,10 @@ public class OnboardingService {
 			"startPrincipal", "annualRatePercent", "monthlyPayment", "payDay", "remainingPeriods", "dueDate",
 			"payAccountId", "fee");
 
-	/**
-	 * 引導裡「這檔已經記在系統裡了」的說法：引導的借款頁上面沒有持股清單，現有持股在第 4 步「擔保」勾選。
-	 * 規則仍只在 LoanService（{@link LoanService#ALREADY_RECORDED}），這裡只換說法（{@link #wizardWording}）。
-	 */
-	static final String ALREADY_RECORDED_WIZARD = "這檔已經記在系統裡了，請在第 4 步「擔保」勾選";
-
-	/** 新增借款（呼叫正式頁面同一個 create，規則一樣；「已經記在系統裡」換成引導的說法）。 */
+	/** 新增借款（呼叫正式頁面同一個 create，規則一樣）。 */
 	@Transactional
 	public Loan addLoan(LoanForm form) {
-		try {
-			return loans.create(form);
-		}
-		catch (LoanValidationException ex) {
-			throw wizardWording(ex);
-		}
-	}
-
-	/** LoanService 的訊息換成引導的說法；只換「已經記在系統裡」那一句，其他原樣。 */
-	private static LoanValidationException wizardWording(LoanValidationException ex) {
-		return LoanService.ALREADY_RECORDED.equals(ex.getMessage())
-				? new LoanValidationException(ALREADY_RECORDED_WIZARD) : ex;
+		return loans.create(form);
 	}
 
 	/**
@@ -350,7 +333,7 @@ public class OnboardingService {
 				loans.validate(form);
 			}
 			catch (LoanValidationException ex) {
-				errors.add(wizardWording(ex).getMessage());
+				errors.add(ex.getMessage());
 			}
 		}
 		return new LoanInput(form, errors, errors.isEmpty() ? loanWarnings(form) : List.of());
