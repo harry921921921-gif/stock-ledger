@@ -297,7 +297,8 @@ class LoanEditTest {
 	/** 每月繳息：手改過日期的那一期保留，下一期的計息起點是它實際的日期。 */
 	@Test
 	void interestOnlyKeptPeriodDateDrivesNextPeriod() {
-		Loan loan = loans.create(interestOnly("玉山質押", today.minusMonths(4)));
+		// 起算日放在月初：第一期是 1 日到 10 日，往前三天的銀行日期才不會早於起算日（不然 8、9 號跑會失敗）
+		Loan loan = loans.create(interestOnly("玉山質押", YearMonth.from(today).minusMonths(4).atDay(1)));
 		List<CashMovement> periods = active(loan.getId(), CashMovementType.LOAN_INTEREST);
 		assertThat(periods).hasSizeGreaterThanOrEqualTo(2);
 		CashMovement first = periods.get(0);
